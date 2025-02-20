@@ -1,9 +1,14 @@
 from typing import Optional, Dict, Any
-from .ollama_client import OllamaClient
+import os
+from dotenv import load_dotenv
+import ollama
+
+load_dotenv()
 
 class LLMManager:
     def __init__(self):
-        self.ollama_client = OllamaClient()
+        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.ollama_client = ollama.Client(host=ollama_url)
         self.current_provider = "ollama"
         self.providers = {
             "ollama": self.ollama_client
