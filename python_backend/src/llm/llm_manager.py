@@ -17,7 +17,7 @@ class LLMManager:
         # Default configurations
         self.current_provider = "ollama"
         self.current_models = {
-            "ollama": "llama2",
+            "ollama": os.getenv("MODEL_NAME", "qwen2.5:14b"),
             "anthropic": "claude-3-opus-20240229",
             "openai": "gpt-4-turbo-preview"
         }
