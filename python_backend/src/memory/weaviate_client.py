@@ -148,7 +148,7 @@ class WeaviateClient:
                         "description": "Location where the memory was created",
                         "dataType": ["text"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
@@ -159,7 +159,7 @@ class WeaviateClient:
                         "description": "Agent who owns the memory",
                         "dataType": ["text"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
@@ -170,7 +170,7 @@ class WeaviateClient:
                         "description": "Unique ID of the memory",
                         "dataType": ["text"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
