@@ -1,9 +1,11 @@
 import os
 import json
 import datetime
-from typing import Dict, List, Optional, Any
+import logging
+from typing import Dict, List, Optional, Any, Union
 from ..llm.llm_manager import LLMManager
 from ..memory.weaviate_client import WeaviateClient
+from ..memory.mock_weaviate_client import MockWeaviateClient
 from .agent import Agent
 from .subconscious_agent import SubconsciousAgent
 
@@ -12,16 +14,23 @@ class AgentManager:
     Manages the lifecycle and coordination of multiple agents in the simulation.
     """
     
-    def __init__(self, llm_manager: LLMManager, weaviate_client: WeaviateClient):
+    def __init__(self, llm_manager: LLMManager, weaviate_client: Optional[Union[WeaviateClient, MockWeaviateClient]] = None):
         """
         Initialize the AgentManager.
         
         Args:
             llm_manager: The LLM manager for agent responses
-            weaviate_client: The Weaviate client for memory storage
+            weaviate_client: The Weaviate client for memory storage (or None to use mock)
         """
         self.llm_manager = llm_manager
-        self.weaviate_client = weaviate_client
+        
+        # If no Weaviate client is provided, use the mock implementation
+        if weaviate_client is None:
+            logging.warning("No Weaviate client provided, using mock implementation")
+            self.weaviate_client = MockWeaviateClient("mock://localhost")
+        else:
+            self.weaviate_client = weaviate_client
+            
         self.agents: Dict[str, Agent] = {}
         self.subconscious_agents: Dict[str, SubconsciousAgent] = {}
         self.tools = self._load_tools()

@@ -1,8 +1,10 @@
 import datetime
 import uuid
-from typing import Dict, List, Any, Optional
+import logging
+from typing import Dict, List, Any, Optional, Union
 from ..llm.llm_manager import LLMManager
 from ..memory.weaviate_client import WeaviateClient
+from ..memory.mock_weaviate_client import MockWeaviateClient
 
 class SubconsciousAgent:
     """
@@ -10,7 +12,7 @@ class SubconsciousAgent:
     """
     
     def __init__(self, agent_name: str, llm_manager: LLMManager, 
-                 weaviate_client: WeaviateClient, memory_categories: Dict[str, Any]):
+                 weaviate_client: Union[WeaviateClient, MockWeaviateClient], memory_categories: Dict[str, Any]):
         """
         Initialize a subconscious agent.
         
