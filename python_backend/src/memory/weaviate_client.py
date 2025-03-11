@@ -33,10 +33,7 @@ class WeaviateClient:
         try:
             self.client = weaviate.Client(
                 url=url,
-                auth_client_secret=auth_config,
-                additional_headers={
-                    "X-OpenAI-Api-Key": os.getenv("OPENAI_API_KEY")  # For OpenAI modules if used
-                }
+                auth_client_secret=auth_config
             )
             logging.info(f"Connected to Weaviate at {url}")
         except Exception as e:
@@ -72,12 +69,11 @@ class WeaviateClient:
             class_obj = {
                 "class": collection_name,
                 "description": f"Memory collection for {collection_name}",
-                "vectorizer": "text2vec-openai",  # Using OpenAI for vectorization
+                "vectorizer": "text2vec-transformers",  # Using transformers for vectorization
                 "moduleConfig": {
-                    "text2vec-openai": {
-                        "model": "ada",
-                        "modelVersion": "002",
-                        "type": "text"
+                    "text2vec-transformers": {
+                        "poolingStrategy": "masked_mean",
+                        "vectorizeClassName": false
                     }
                 },
                 "properties": [
@@ -86,7 +82,7 @@ class WeaviateClient:
                         "description": "Summary of the memory",
                         "dataType": ["text"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": False,
                                 "vectorizePropertyName": False
                             }
@@ -97,7 +93,7 @@ class WeaviateClient:
                         "description": "Category of the memory",
                         "dataType": ["text"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
