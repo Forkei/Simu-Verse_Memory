@@ -1,10 +1,7 @@
-import os
-import json
 import uuid
 import logging
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional
 import weaviate
-from weaviate.exceptions import WeaviateQueryError
 from ..llm.llm_manager import LLMManager
 
 class WeaviateClient:
@@ -31,9 +28,10 @@ class WeaviateClient:
         
         # Initialize client
         try:
-            self.client = weaviate.Client(
-                url=url,
-                auth_client_secret=auth_config
+            self.client = weaviate.connect_to_local(
+                host=url.replace("http://", "").replace("https://", "").split(":")[0],
+                port=int(url.split(":")[-1]) if ":" in url else 8080,
+                auth_credentials=auth_config
             )
             logging.info(f"Connected to Weaviate at {url}")
         except Exception as e:
@@ -58,143 +56,101 @@ class WeaviateClient:
         """
         # Check if collection exists
         try:
-            schema = self.client.schema.get()
-            classes = [c["class"] for c in schema["classes"]] if "classes" in schema else []
+            # Check if collection exists
+            collections = self.client.collections.list_all()
+            collection_names = [c.name for c in collections]
             
-            if collection_name in classes:
+            if collection_name in collection_names:
                 logging.info(f"Collection {collection_name} already exists")
                 return
             
-            # Define the class/collection
-            class_obj = {
-                "class": collection_name,
-                "description": f"Memory collection for {collection_name}",
-                "vectorizer": "text2vec-transformers",  # Using transformers for vectorization
-                "moduleConfig": {
-                    "text2vec-transformers": {
-                        "poolingStrategy": "masked_mean",
-                        "vectorizeClassName": False
-                    }
-                },
-                "properties": [
-                    {
-                        "name": "summary",
-                        "description": "Summary of the memory",
-                        "dataType": ["text"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": False,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "category",
-                        "description": "Category of the memory",
-                        "dataType": ["text"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "keywords",
-                        "description": "Keywords related to the memory",
-                        "dataType": ["text[]"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "critical_information",
-                        "description": "Critical information in the memory",
-                        "dataType": ["text"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "importance",
-                        "description": "Importance of the memory (1-10)",
-                        "dataType": ["int"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "timestamp",
-                        "description": "Timestamp of the memory",
-                        "dataType": ["text"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "location",
-                        "description": "Location where the memory was created",
-                        "dataType": ["text"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "agent",
-                        "description": "Agent who owns the memory",
-                        "dataType": ["text"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    },
-                    {
-                        "name": "id",
-                        "description": "Unique ID of the memory",
-                        "dataType": ["text"],
-                        "moduleConfig": {
-                            "text2vec-transformers": {
-                                "skip": True,
-                                "vectorizePropertyName": False
-                            }
-                        }
-                    }
-                ]
-            }
+            # Create the collection with properties
+            collection = self.client.collections.create(
+                name=collection_name,
+                description=f"Memory collection for {collection_name}",
+                vectorizer_config=weaviate.classes.config.Configure.Vectorizer.text2vec_transformers(
+                    pooling_strategy="masked_mean",
+                    vectorize_collection_name=False
+                )
+            )
             
-            # Create the class
-            self.client.schema.create_class(class_obj)
+            # Add properties to the collection
+            collection.properties.create(
+                name="summary",
+                description="Summary of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=False
+            )
+            
+            collection.properties.create(
+                name="category",
+                description="Category of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="keywords",
+                description="Keywords related to the memory",
+                data_type=weaviate.classes.config.DataType.TEXT_ARRAY,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="critical_information",
+                description="Critical information in the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="importance",
+                description="Importance of the memory (1-10)",
+                data_type=weaviate.classes.config.DataType.INT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="timestamp",
+                description="Timestamp of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="location",
+                description="Location where the memory was created",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="agent",
+                description="Agent who owns the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="id",
+                description="Unique ID of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
             logging.info(f"Created collection {collection_name}")
         
         except Exception as e:
             logging.error(f"Error creating collection {collection_name}: {e}")
             raise
     
-    def add_object(self, collection_name: str, properties: Dict[str, Any], vector_field: str = "summary") -> str:
+    def add_object(self, collection_name: str, properties: Dict[str, Any], vector_field: str = None) -> str:
         """
         Add an object to a collection.
         
         Args:
             collection_name: Name of the collection
             properties: Properties of the object
-            vector_field: Field to use for vectorization
+            vector_field: Field to use for vectorization (not used in newer API)
             
         Returns:
             ID of the created object
@@ -203,12 +159,11 @@ class WeaviateClient:
             # Generate UUID if not provided
             obj_id = properties.get("id", str(uuid.uuid4()))
             
+            # Get the collection
+            collection = self.client.collections.get(collection_name)
+            
             # Add the object
-            self.client.data_object.create(
-                data_object=properties,
-                class_name=collection_name,
-                uuid=obj_id
-            )
+            collection.data.insert(properties, obj_id)
             
             logging.info(f"Added object to {collection_name} with ID {obj_id}")
             return obj_id
@@ -229,13 +184,14 @@ class WeaviateClient:
             The object or None if not found
         """
         try:
-            result = self.client.data_object.get_by_id(
-                uuid=object_id,
-                class_name=collection_name
-            )
+            # Get the collection
+            collection = self.client.collections.get(collection_name)
+            
+            # Get the object
+            result = collection.query.fetch_object_by_id(object_id)
             
             if result:
-                return result
+                return result.properties
             return None
         
         except Exception as e:
@@ -254,10 +210,11 @@ class WeaviateClient:
             True if successful, False otherwise
         """
         try:
-            self.client.data_object.delete(
-                uuid=object_id,
-                class_name=collection_name
-            )
+            # Get the collection
+            collection = self.client.collections.get(collection_name)
+            
+            # Delete the object
+            collection.data.delete_by_id(object_id)
             
             logging.info(f"Deleted object {object_id} from {collection_name}")
             return True
@@ -281,24 +238,21 @@ class WeaviateClient:
             List of matching objects
         """
         try:
-            # Build the query
-            where_filter = self._build_where_filter(filters)
+            # Get the collection
+            collection = self.client.collections.get(collection_name)
+            
+            # Build the filter
+            filter_query = self._build_filter_query(filters)
             
             # Execute the query
-            result = (
-                self.client.query
-                .get(collection_name, ["summary", "category", "keywords", "critical_information", 
-                                       "importance", "timestamp", "location", "agent", "id"])
-                .with_near_text({"concepts": [query]})
-                .with_where(where_filter) if where_filter else self.client.query.get(collection_name)
-                .with_limit(limit)
-                .do()
+            results = collection.query.near_text(
+                query=query,
+                limit=limit,
+                filters=filter_query
             )
             
-            # Extract and return the objects
-            if "data" in result and "Get" in result["data"] and collection_name in result["data"]["Get"]:
-                return result["data"]["Get"][collection_name]
-            return []
+            # Convert results to dictionaries
+            return [obj.properties for obj in results.objects]
         
         except Exception as e:
             logging.error(f"Error performing semantic search in {collection_name}: {e}")
@@ -319,30 +273,27 @@ class WeaviateClient:
             List of matching objects
         """
         try:
-            # Build the query
-            where_filter = self._build_where_filter(filters)
+            # Get the collection
+            collection = self.client.collections.get(collection_name)
+            
+            # Build the filter
+            filter_query = self._build_filter_query(filters)
             
             # Execute the query
-            result = (
-                self.client.query
-                .get(collection_name, ["summary", "category", "keywords", "critical_information", 
-                                       "importance", "timestamp", "location", "agent", "id"])
-                .with_bm25({"query": query})
-                .with_where(where_filter) if where_filter else self.client.query.get(collection_name)
-                .with_limit(limit)
-                .do()
+            results = collection.query.bm25(
+                query=query,
+                limit=limit,
+                filters=filter_query
             )
             
-            # Extract and return the objects
-            if "data" in result and "Get" in result["data"] and collection_name in result["data"]["Get"]:
-                return result["data"]["Get"][collection_name]
-            return []
+            # Convert results to dictionaries
+            return [obj.properties for obj in results.objects]
         
         except Exception as e:
             logging.error(f"Error performing keyword search in {collection_name}: {e}")
             return []
     
-    def hybrid_search(self, collection_name: str, query: str, keyword_query: str,
+    def hybrid_search(self, collection_name: str, query: str, keyword_query: str = None,
                       filters: Optional[Dict[str, Any]] = None, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Perform a hybrid search (semantic + keyword).
@@ -350,7 +301,7 @@ class WeaviateClient:
         Args:
             collection_name: Name of the collection
             query: Semantic query
-            keyword_query: Keyword query
+            keyword_query: Keyword query (not used in newer API, query is used for both)
             filters: Optional filters
             limit: Maximum number of results
             
@@ -358,79 +309,64 @@ class WeaviateClient:
             List of matching objects
         """
         try:
-            # Build the query
-            where_filter = self._build_where_filter(filters)
+            # Get the collection
+            collection = self.client.collections.get(collection_name)
+            
+            # Build the filter
+            filter_query = self._build_filter_query(filters)
             
             # Execute the query
-            result = (
-                self.client.query
-                .get(collection_name, ["summary", "category", "keywords", "critical_information", 
-                                       "importance", "timestamp", "location", "agent", "id"])
-                .with_hybrid({"query": query, "alpha": 0.5})  # Alpha balances between vector and keyword search
-                .with_where(where_filter) if where_filter else self.client.query.get(collection_name)
-                .with_limit(limit)
-                .do()
+            results = collection.query.hybrid(
+                query=query,
+                alpha=0.5,  # Balance between vector and keyword search
+                limit=limit,
+                filters=filter_query
             )
             
-            # Extract and return the objects
-            if "data" in result and "Get" in result["data"] and collection_name in result["data"]["Get"]:
-                return result["data"]["Get"][collection_name]
-            return []
+            # Convert results to dictionaries
+            return [obj.properties for obj in results.objects]
         
         except Exception as e:
             logging.error(f"Error performing hybrid search in {collection_name}: {e}")
             return []
     
-    def _build_where_filter(self, filters: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    @staticmethod
+    def _build_filter_query(filters: Optional[Dict[str, Any]]) -> Optional[weaviate.classes.query.Filter]:
         """
-        Build a where filter for Weaviate queries.
+        Build a filter query for Weaviate queries.
         
         Args:
             filters: Filter specification
             
         Returns:
-            Weaviate where filter
+            Weaviate filter query
         """
         if not filters:
             return None
         
-        # Simple filter with a single condition
-        if "path" in filters and "operator" in filters:
-            return filters
-        
-        # Multiple filters
-        operands = []
+        filter_conditions = []
         
         # Process category filter
         if "category" in filters:
-            operands.append({
-                "path": ["category"],
-                "operator": "Equal",
-                "valueString": filters["category"]
-            })
+            filter_conditions.append(
+                weaviate.classes.query.Filter.by_property("category").equal(filters["category"])
+            )
         
         # Process importance filters
         if "min_importance" in filters:
-            operands.append({
-                "path": ["importance"],
-                "operator": "GreaterThanEqual",
-                "valueNumber": filters["min_importance"]
-            })
+            filter_conditions.append(
+                weaviate.classes.query.Filter.by_property("importance").greater_than_equal(filters["min_importance"])
+            )
         
         if "max_importance" in filters:
-            operands.append({
-                "path": ["importance"],
-                "operator": "LessThanEqual",
-                "valueNumber": filters["max_importance"]
-            })
+            filter_conditions.append(
+                weaviate.classes.query.Filter.by_property("importance").less_than_equal(filters["max_importance"])
+            )
         
-        # If we have multiple operands, combine them with AND
-        if len(operands) > 1:
-            return {
-                "operator": "And",
-                "operands": operands
-            }
-        elif len(operands) == 1:
-            return operands[0]
+        # Combine filters with AND
+        if len(filter_conditions) > 1:
+            return weaviate.classes.query.Filter.all_of(*filter_conditions)
+        elif len(filter_conditions) == 1:
+            return filter_conditions[0]
         
         return None
