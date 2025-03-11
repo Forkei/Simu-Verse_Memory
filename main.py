@@ -33,10 +33,12 @@ def main():
         weaviate_url = os.getenv("WEAVIATE_URL", "http://localhost:8080")
         weaviate_api_key = os.getenv("WEAVIATE_API_KEY")
         
+        # Try to connect to Weaviate
         try:
+            logging.info(f"Attempting to connect to Weaviate at {weaviate_url}")
             weaviate_client = WeaviateClient(weaviate_url, weaviate_api_key)
             weaviate_client.set_llm_manager(llm_manager)
-            logging.info(f"Connected to Weaviate at {weaviate_url}")
+            logging.info(f"Successfully connected to Weaviate at {weaviate_url}")
         except Exception as e:
             logging.error(f"Failed to connect to Weaviate: {e}")
             logging.warning("Running in memory-less mode. Memories will not be persisted.")

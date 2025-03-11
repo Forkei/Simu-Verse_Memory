@@ -28,12 +28,22 @@ class WeaviateClient:
         
         # Initialize client
         try:
+            # Parse URL to get host and port
+            parsed_url = url.replace("http://", "").replace("https://", "")
+            host = parsed_url.split(":")[0] if ":" in parsed_url else parsed_url
+            port = int(parsed_url.split(":")[-1]) if ":" in parsed_url else 8080
+            
+            # Connect to Weaviate
             self.client = weaviate.connect_to_local(
-                host=url.replace("http://", "").replace("https://", "").split(":")[0],
-                port=int(url.split(":")[-1]) if ":" in url else 8080,
+                host=host,
+                port=port,
                 auth_credentials=auth_config
             )
-            logging.info(f"Connected to Weaviate at {url}")
+            
+            # Test connection by getting meta info
+            meta = self.client.get_meta()
+            version = meta.get("version", "unknown")
+            logging.info(f"Connected to Weaviate version {version} at {url}")
         except Exception as e:
             logging.error(f"Failed to connect to Weaviate: {e}")
             raise
