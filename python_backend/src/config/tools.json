@@ -1,0 +1,109 @@
+{
+  "movement": {
+    "description": "Move to a specific location or entity",
+    "parameters": {
+      "target_type": {
+        "type": "string",
+        "description": "Type of target (agent, landmark, item)",
+        "required": true,
+        "enum": ["agent", "landmark", "item"]
+      },
+      "target_name": {
+        "type": "string",
+        "description": "Name of the target to move to",
+        "required": true
+      },
+      "speed": {
+        "type": "string",
+        "description": "Speed of movement",
+        "required": false,
+        "default": "normal",
+        "enum": ["slow", "normal", "fast"]
+      }
+    }
+  },
+  "scan": {
+    "description": "Scan the surrounding environment for agents and objects",
+    "parameters": {
+      "radius": {
+        "type": "number",
+        "description": "Radius to scan in meters",
+        "required": false,
+        "default": 10
+      },
+      "filter": {
+        "type": "string",
+        "description": "Filter for specific types of entities",
+        "required": false,
+        "enum": ["agents", "items", "landmarks", "all"],
+        "default": "all"
+      }
+    }
+  },
+  "talk": {
+    "description": "Communicate with another agent",
+    "parameters": {
+      "target": {
+        "type": "string",
+        "description": "Name of the agent to talk to",
+        "required": true
+      },
+      "message": {
+        "type": "string",
+        "description": "Content of the message",
+        "required": true
+      },
+      "tone": {
+        "type": "string",
+        "description": "Tone of the message",
+        "required": false,
+        "default": "neutral",
+        "enum": ["friendly", "neutral", "formal", "urgent"]
+      }
+    }
+  },
+  "think": {
+    "description": "Internal thinking and planning",
+    "parameters": {
+      "topic": {
+        "type": "string",
+        "description": "Topic to think about",
+        "required": true
+      },
+      "depth": {
+        "type": "string",
+        "description": "Depth of thinking",
+        "required": false,
+        "default": "normal",
+        "enum": ["brief", "normal", "deep"]
+      }
+    }
+  },
+  "interact": {
+    "description": "Interact with an object in the environment",
+    "parameters": {
+      "object": {
+        "type": "string",
+        "description": "Object to interact with",
+        "required": true
+      },
+      "action": {
+        "type": "string",
+        "description": "Action to perform",
+        "required": true,
+        "enum": ["open", "close", "sit", "stand", "pick_up", "put_down", "use"]
+      }
+    }
+  },
+  "do_nothing": {
+    "description": "Take no action for this turn",
+    "parameters": {
+      "duration": {
+        "type": "number",
+        "description": "Duration to do nothing in seconds",
+        "required": false,
+        "default": 5
+      }
+    }
+  }
+}
