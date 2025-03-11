@@ -73,7 +73,7 @@ class WeaviateClient:
                 "moduleConfig": {
                     "text2vec-transformers": {
                         "poolingStrategy": "masked_mean",
-                        "vectorizeClassName": false
+                        "vectorizeClassName": False
                     }
                 },
                 "properties": [
@@ -104,7 +104,7 @@ class WeaviateClient:
                         "description": "Keywords related to the memory",
                         "dataType": ["text[]"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
@@ -115,7 +115,7 @@ class WeaviateClient:
                         "description": "Critical information in the memory",
                         "dataType": ["text"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
@@ -126,7 +126,7 @@ class WeaviateClient:
                         "description": "Importance of the memory (1-10)",
                         "dataType": ["int"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
@@ -137,7 +137,7 @@ class WeaviateClient:
                         "description": "Timestamp of the memory",
                         "dataType": ["text"],
                         "moduleConfig": {
-                            "text2vec-openai": {
+                            "text2vec-transformers": {
                                 "skip": True,
                                 "vectorizePropertyName": False
                             }
