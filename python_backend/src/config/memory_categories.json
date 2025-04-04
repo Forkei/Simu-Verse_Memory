@@ -1,0 +1,46 @@
+{
+  "categories": [
+    {
+      "name": "conversation",
+      "description": "Memories related to conversations with other agents"
+    },
+    {
+      "name": "observation",
+      "description": "Memories from observing the environment or other agents"
+    },
+    {
+      "name": "action",
+      "description": "Memories of actions taken by the agent"
+    },
+    {
+      "name": "emotion",
+      "description": "Memories related to emotional experiences"
+    },
+    {
+      "name": "plan",
+      "description": "Memories of plans or decisions made"
+    },
+    {
+      "name": "relationship",
+      "description": "Memories about relationships with other agents"
+    },
+    {
+      "name": "knowledge",
+      "description": "Factual information learned about the world"
+    },
+    {
+      "name": "reflection",
+      "description": "Self-reflective thoughts or realizations"
+    }
+  ],
+  "importance_scale": {
+    "min": 1,
+    "max": 10,
+    "default": 5,
+    "thresholds": {
+      "low": 3,
+      "medium": 6,
+      "high": 8
+    }
+  }
+}

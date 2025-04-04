@@ -1,0 +1,11 @@
+2025-03-11 19:57:30,835 - root - INFO - Initialized LLM manager
+2025-03-11 19:57:30,835 - root - INFO - Attempting to connect to Weaviate at http://localhost:8080
+2025-03-11 19:57:31,291 - httpx - INFO - HTTP Request: GET http://localhost:8080/v1/meta "HTTP/1.1 401 Unauthorized"
+2025-03-11 19:57:31,292 - root - ERROR - Failed to connect to Weaviate: Meta endpoint! Unexpected status code: 401, with response body: {'code': 401, 'message': 'oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured'}.
+2025-03-11 19:57:31,292 - root - ERROR - Failed to connect to Weaviate: Meta endpoint! Unexpected status code: 401, with response body: {'code': 401, 'message': 'oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured'}.
+2025-03-11 19:57:31,294 - root - WARNING - Running in memory-less mode. Memories will not be persisted.
+2025-03-11 19:57:31,294 - root - WARNING - No Weaviate client provided, using mock implementation
+2025-03-11 19:57:31,294 - root - INFO - Initialized MockWeaviateClient
+2025-03-11 19:57:31,295 - root - INFO - Initialized agent manager
+2025-03-11 19:57:31,295 - root - INFO - Created mock collection: Memories_alice
+2025-03-11 19:57:31,296 - root - INFO - Created agent: alice
