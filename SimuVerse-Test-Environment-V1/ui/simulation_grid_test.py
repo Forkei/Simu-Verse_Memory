@@ -979,41 +979,47 @@ app.layout = html.Div([
                                 # Agent name with conditional thinking indicator
                                 html.Span(f"{name}", className="fw-bold"),
                                 # Add a thinking spinner when agent is thinking
-                                html.Span(id=f"thinking-indicator-{name}", className="thinking-spinner ms-2", 
+                                html.Span(id=f"thinking-indicator-{name}", className="thinking-spinner ms-2",
                                          style={"display": "none"})
                             ]), width=3),
                             dbc.Col(html.Div([
-                                html.Div(f"{agent.framework_agent.llm.__class__.__name__}" if agent.framework_agent else "No LLM", className="fw-bold"),
-                                html.Div(f"{agent.framework_agent.llm if agent.framework_agent else ''}", className="text-muted small")       
+                                # TODO: Update this to reflect backend agent's LLM info if needed
+                                html.Div(f"{agent.llm_manager.current_provider}" if hasattr(agent, 'llm_manager') else "LLM Info", className="fw-bold"),
+                                html.Div(f"{agent.llm_manager.current_models.get(agent.llm_manager.current_provider, '')}" if hasattr(agent, 'llm_manager') else "", className="text-muted small")
                             ], className="d-flex flex-column"), width=3),
                             dbc.Col([
-                                dbc.Row([
-                                    html.Small("Memory", className="text-muted"),
-                                    dcc.Slider(
-                                        id={'type': 'memory-slider', 'index': name},
-                                        min=0,
-                                        max=1,
-                                        step=1,
-                                        value=1 if agent.framework_agent and agent.framework_agent.memory_enabled else 0,
-                                        marks={0: 'Off', 1: 'On'},
-                                        className="mb-2"
-                                    )
-                                ]),
-                                dbc.Row([
-                                    html.Small("Personality", className="text-muted"),
-                                    dcc.Slider(
-                                        id={'type': 'personality-slider', 'index': name},
-                                        min=0,
-                                        max=1,
-                                        step=0.1,
-                                        value=agent.framework_agent.personality_strength if agent.framework_agent else 0.5,
-                                        marks={0: 'Low', 1: 'High'},
-                                        className="mb-2"
-                                    )
-                                ])
+                                # TODO: Re-enable sliders once backend Agent supports these settings directly
+                                # dbc.Row([
+                                #     html.Small("Memory", className="text-muted"),
+                                #     dcc.Slider(
+                                #         id={'type': 'memory-slider', 'index': name},
+                                #         min=0,
+                                #         max=1,
+                                #         step=1,
+                                #         # value=1 if agent.memory_enabled else 0, # Placeholder
+                                #         value=1, # Default to On for now
+                                #         marks={0: 'Off', 1: 'On'},
+                                #         className="mb-2"
+                                #     )
+                                # ]),
+                                # dbc.Row([
+                                #     html.Small("Personality", className="text-muted"),
+                                #     dcc.Slider(
+                                #         id={'type': 'personality-slider', 'index': name},
+                                #         min=0,
+                                #         max=1,
+                                #         step=0.1,
+                                #         # value=agent.personality_strength, # Placeholder
+                                #         value=0.5, # Default to 0.5 for now
+                                #         marks={0: 'Low', 1: 'High'},
+                                #         className="mb-2"
+                                #     )
+                                # ])
+                                html.Div("Settings sliders disabled until backend integration.", className="text-muted small")
                             ], width=6)
                         ], className="mb-2 node-card")
-                        for name, agent in agent_lookup.items()
+                        # Use the backend agent manager's agents dictionary
+                        for name, agent in backend_agent_manager.agents.items()
                     ])
                 ]),
                 
