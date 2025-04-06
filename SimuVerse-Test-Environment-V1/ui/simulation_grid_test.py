@@ -508,30 +508,29 @@ async def simulation_step_async():
              # TODO: Update UI immediately if possible
 
              # --- Tool Execution ---
-            # --- Tool Execution ---
-            # Ensure processed_response is not None before accessing tool_use
-            tool_use = processed_response.get("tool_use") if processed_response else None
-            if tool_use and tool_use.get("name") == "movement":
-                # Extract movement parameters
-                params = tool_use.get("parameters", {})
-                target_type = params.get("target_type")
-                target_name_param = params.get("target_name") # Renamed to avoid conflict
+             # Ensure processed_response is not None before accessing tool_use
+             tool_use = processed_response.get("tool_use") if processed_response else None
+             if tool_use and tool_use.get("name") == "movement":
+                 # Extract movement parameters
+                 params = tool_use.get("parameters", {})
+                 target_type = params.get("target_type")
+                 target_name_param = params.get("target_name") # Renamed to avoid conflict
 
-                # Move the agent using the parameters
-                new_position = move_agent(target_name, agent_positions, target_type, target_name_param)
-                agent_positions[target_name] = new_position
-                # Reset cooldown as the agent chose to move
-                agent_movement_cooldown[target_name] = 0
+                 # Move the agent using the parameters
+                 new_position = move_agent(target_name, agent_positions, target_type, target_name_param)
+                 agent_positions[target_name] = new_position
+                 # Reset cooldown as the agent chose to move
+                 agent_movement_cooldown[target_name] = 0
 
-                # Log movement, including intended target if specified
-                if target_type and target_name_param:
-                    move_message = f"[Moved towards {target_type} '{target_name_param}' - New position: ({new_position['x']:.0f}, {new_position['y']:.0f})]"
-                else:
-                    move_message = f"[Moved randomly - New position: ({new_position['x']:.0f}, {new_position['y']:.0f})]"
+                 # Log movement, including intended target if specified
+                 if target_type and target_name_param:
+                     move_message = f"[Moved towards {target_type} '{target_name_param}' - New position: ({new_position['x']:.0f}, {new_position['y']:.0f})]"
+                 else:
+                     move_message = f"[Moved randomly - New position: ({new_position['x']:.0f}, {new_position['y']:.0f})]"
 
-                conversation_logs[target_name].append({
-                    "sender": "System", # Keep sender as System for movement logs
-                    "message": move_message,
+                 conversation_logs[target_name].append({
+                     "sender": "System", # Keep sender as System for movement logs
+                     "message": move_message,
                      "type": "system"
                  })
                  # updates.append((source_name, target_name, "[SYSTEM: Moved location]")) # Redundant if logged
