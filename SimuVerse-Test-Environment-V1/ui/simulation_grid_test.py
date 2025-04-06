@@ -548,40 +548,40 @@ def _handle_agent_movement(edges, previous_connections, agent_responses):
     # Move agents who decided to move probabilistically (Currently commented out)
     moved_agents = set(agents_to_move) # Use set to avoid duplicates
     for agent_name in moved_agents:
-        source = edge["data"]["source"]
-        target = edge["data"]["target"]
-        
-        # Skip agents that already decided to move explicitly
-        if source in agents_to_move or target in agents_to_move:
-            continue
-            
-        conversation_pair = (source, target)
-        rounds = conversation_rounds.get(conversation_pair, 0)
-        
-        # Increment movement cooldown for agents who have been talking for a while
-        if rounds >= 2:  # After 2-3 rounds of conversation
-            agent_movement_cooldown[source] += 1
-            agent_movement_cooldown[target] += 1
-        
-        # Check if agents should consider moving
-        for agent_name in [source, target]:
-            if agent_name in agents_to_move:
-                continue  # Skip if already moving
-                
-            if agent_movement_cooldown[agent_name] >= 1:  # Agent has been in a conversation for enough rounds
-                # Probability increases the longer they've been talking to the same person
-                probability = min(0.9, agent_movement_probability[agent_name] * (1 + 0.2 * agent_movement_cooldown[agent_name]))
-                
-                # Roll for movement
-                if random.random() < probability:
-                    # Check if agent hasn't already decided to move via tool
-                    if agent_name not in agents_to_move:
-                        agents_to_move.append(agent_name)
+        # source = edge["data"]["source"] # This block is part of the commented out logic above
+        # target = edge["data"]["target"] # This block is part of the commented out logic above
+        #
+        # # Skip agents that already decided to move explicitly
+        # if source in agents_to_move or target in agents_to_move:
+        #     continue
+        #
+        # conversation_pair = (source, target)
+        # rounds = conversation_rounds.get(conversation_pair, 0)
+        #
+        # # Increment movement cooldown for agents who have been talking for a while
+        # if rounds >= 2:  # After 2-3 rounds of conversation
+        #     agent_movement_cooldown[source] += 1
+        #     agent_movement_cooldown[target] += 1
+        #
+        # # Check if agents should consider moving
+        # for agent_name in [source, target]:
+        #     if agent_name in agents_to_move:
+        #         continue  # Skip if already moving
+        #
+        #     if agent_movement_cooldown[agent_name] >= 1:  # Agent has been in a conversation for enough rounds
+        #         # Probability increases the longer they've been talking to the same person
+        #         probability = min(0.9, agent_movement_probability[agent_name] * (1 + 0.2 * agent_movement_cooldown[agent_name]))
+        #
+        #         # Roll for movement
+        #         if random.random() < probability:
+        #             # Check if agent hasn't already decided to move via tool
+        #             if agent_name not in agents_to_move:
+        #                 agents_to_move.append(agent_name)
         # This part is currently unreachable as the probabilistic logic is commented out
         new_position = move_agent(agent_name, agent_positions)
         agent_positions[agent_name] = new_position
         # Log movement?
-        conversation_logs[agent_name].append(f"[SYSTEM: Moved probabilistically to ({new_position['x']:.0f}, {new_position['y']:.0f})]")
+        # conversation_logs[agent_name].append(f"[SYSTEM: Moved probabilistically to ({new_position['x']:.0f}, {new_position['y']:.0f})]")
         # updates.append((source_name, target_name, "[SYSTEM: Moved location]")) # Need source/target if logging update
 
 
