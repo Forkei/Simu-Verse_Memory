@@ -485,27 +485,25 @@ async def simulation_step_async():
     return updates
 
 
-def _handle_agent_movement(edges, previous_connections):
+def _handle_agent_movement(edges, previous_connections, agent_responses):
     """
-    Handle agent movement logic for both sync and async simulation step functions
+    Handle agent movement logic for both sync and async simulation step functions.
+    Now checks agent_responses for movement tool usage.
     """
     import random
-    
-    # Determine which agents should move based on:
-    # 1. Explicit movement requests
-    # 2. Conversation rounds probabilistic movement
+
     agents_to_move = []
-    
-    # First check for explicit movement requests from all agents
-    for name, agent in agent_lookup.items():
-        if agent.wants_to_move():
-            agents_to_move.append(name)
-            # Log the explicit movement request
-            movement_notification = f"[SYSTEM: {name} has explicitly requested to move to meet someone new.]"
-            agent.generate_response(movement_notification)
-            agent_movement_cooldown[name] = 0  # Reset cooldown
-    
-    # Then check for probabilistic movement based on conversation duration
+
+    # Check for explicit movement requests via tool usage
+    for name, response_data in agent_responses.items():
+        tool_use = response_data.get("tool_use", {})
+        if tool_use.get("name") == "movement":
+            # TODO: Optionally use parameters like target_type, target_name if needed
+            if name not in agents_to_move:
+                 agents_to_move.append(name)
+            agent_movement_cooldown[name] = 0 # Reset cooldown if explicitly moving
+
+    # Check for probabilistic movement based on conversation duration
     for edge in edges:
         source = edge["data"]["source"]
         target = edge["data"]["target"]
@@ -533,20 +531,21 @@ def _handle_agent_movement(edges, previous_connections):
                 
                 # Roll for movement
                 if random.random() < probability:
-                    agents_to_move.append(agent_name)
-                    # Reset cooldown after deciding to move
-                    agent_movement_cooldown[agent_name] = 0
-    
+                    # Check if agent hasn't already decided to move via tool
+                    if agent_name not in agents_to_move:
+                        agents_to_move.append(agent_name)
+                        # Reset cooldown after deciding to move
+                        agent_movement_cooldown[agent_name] = 0
+
     # Move agents who decided to move
-    for agent_name in set(agents_to_move):  # Use set to avoid duplicates
+    moved_agents = set(agents_to_move) # Use set to avoid duplicates
+    for agent_name in moved_agents:
         new_position = move_agent(agent_name, agent_positions)
         agent_positions[agent_name] = new_position
-        
-        # Log the movement
-        movement_notification = f"[SYSTEM: {agent_name} has moved to a new location and will connect to a new person in the next step.]"
-        # TODO: Adapt this based on how backend agent stores/indicates movement
-        # For now, assume movement is handled via tool use in processed_response
-        pass # Movement notification is now part of the agent's internal processing/memory
+
+        # Movement notification is now handled internally by the agent/memory system
+        # No need to generate a separate notification here.
+        # agent_lookup[agent_name].generate_response(movement_notification)
 
 
 # Remove the old async helper function as logic is now in AgentManager
