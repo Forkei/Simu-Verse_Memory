@@ -142,22 +142,6 @@ jamal = backend_agent_manager.create_agent(
 
 
 # Remove the old agent creation calls
-# james = create_agent_with_llm(
-#     agent_id=1,
-#     name="James",
-    provider="openai",
-    api_key=openai_api_key,
-    model="gpt-4o-mini",
-    system_prompt=(
-        "You are James, a friendly 20 yr old male college student in a social simulation. "
-        "Respond naturally in a conversational tone and limit your reply to no more than 2 sentences. "
-        "After talking to the same person for 2-3 rounds, you prefer to move and meet someone new. "
-        "You're curious and enjoy meeting different people. "
-        "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-        "This will cause you to physically move in the simulation to meet someone else."
-    ),
-    memory_enabled=True,
-
 # Update the agent_lookup dictionary with the agents created by the backend manager
 agent_lookup = backend_agent_manager.agents
 
