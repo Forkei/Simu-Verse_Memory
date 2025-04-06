@@ -403,50 +403,82 @@ async def simulation_step_async():
     # Get previous connections from the agent's state
     previous_connections = getattr(simulation_step_async, 'previous_connections', {})
     
-    # Process conversations asynchronously
-    tasks = []
+    # Process conversations using the backend AgentManager
+    # We'll process turns sequentially for now to manage state updates easily within Dash context.
+    # For true concurrency, a more complex state management or background task system would be needed.
+    
+    # Store results temporarily for logging/UI updates
+    agent_last_processed_response = {}
+
     for edge in edges:
-        source = edge["data"]["source"]
-        target = edge["data"]["target"]
+        source_name = edge["data"]["source"]
+        target_name = edge["data"]["target"]
         
-        # Get the agent objects
-        source_agent = agent_lookup[source]
-        target_agent = agent_lookup[target]
+        # Get the agent objects from the backend manager
+        source_agent = backend_agent_manager.agents.get(source_name)
+        target_agent = backend_agent_manager.agents.get(target_name)
         
+        if not source_agent or not target_agent:
+            continue # Skip if agents aren't found (shouldn't happen)
+
         # Check if this is a new connection
-        is_new_connection = previous_connections.get(target) != source
+        is_new_connection = previous_connections.get(target_name) != source_name
         
         # Update conversation round counter
-        conversation_pair = (source, target)
+        conversation_pair = (source_name, target_name)
         if is_new_connection:
             conversation_rounds[conversation_pair] = 0
-            agent_movement_cooldown[target] = 0  # Reset cooldown
+            agent_movement_cooldown[target_name] = 0  # Reset cooldown
             
             # Notify agent of new connection
-            notification = f"[SYSTEM: You are now connected to {source}. Please acknowledge with a brief greeting.]"
-            
-            # Create task for asynchronous processing
-            tasks.append((target_agent, notification, source, target, is_new_connection))
+            input_message = f"[SYSTEM: You are now connected to {source_name}. Please acknowledge with a brief greeting.]"
         else:
             conversation_rounds[conversation_pair] = conversation_rounds.get(conversation_pair, 0) + 1
             
-            # Get the last message from the source agent's history
-            if source_agent.framework_agent and source_agent.framework_agent.conversation_history:
-                last_msg = source_agent.framework_agent.conversation_history[-1]["content"]
+            # Get the last message from the source agent's history (if any)
+            if source_agent.conversation_history:
+                # Find the last message *from* the source agent
+                last_source_message = next((msg for msg in reversed(source_agent.conversation_history) if msg["role"] == "assistant"), None)
+                input_message = last_source_message["content"] if last_source_message else "Hello"
             else:
-                last_msg = "Hello"
-                
-            # Create task for asynchronous processing
-            tasks.append((target_agent, last_msg, source, target, is_new_connection))
-    
-    # Process all tasks concurrently
-    if tasks:
-        # The responses will be processed asynchronously and UI will be updated in real-time
-        await asyncio.gather(*[_process_agent_response_async(agent, message, source, target, is_new) 
-                             for agent, message, source, target, is_new in tasks])
-    
-    # Handle agent movement
-    _handle_agent_movement(edges, previous_connections)
+                input_message = "Hello" # Initial message if source hasn't spoken
+
+        # Process the target agent's turn using the backend manager
+        # Note: This is currently synchronous. For async, we'd need await here and handle concurrency.
+        try:
+            # Set thinking state (assuming backend agent has this attribute)
+            if hasattr(target_agent, 'thinking'): target_agent.thinking = True
+            # TODO: Update UI immediately to show thinking state if possible
+
+            processed_response = backend_agent_manager.process_agent_turn(target_name, input_message)
+            agent_last_processed_response[target_name] = processed_response # Store the result
+
+            # Update conversation logs based on the agent's internal history
+            if target_agent.conversation_history:
+                 # Get the latest assistant message added by process_agent_turn
+                 latest_response = target_agent.conversation_history[-1]
+                 if latest_response["role"] == "assistant":
+                     # Extract the actual response content (assuming it's within the reflection/tool use structure)
+                     # This might need adjustment based on the exact format of 'processed_response'
+                     display_response = processed_response.get("reflection", {}).get("description", "Thinking...") # Example: use description
+                     if not display_response and processed_response.get("tool_use"):
+                         display_response = f"Using tool: {processed_response['tool_use'].get('name', 'Unknown')}"
+
+                     conversation_logs[target_name].append(display_response)
+                     updates.append((source_name, target_name, display_response))
+
+        except Exception as e:
+            st.error(f"Error processing turn for {target_name}: {e}")
+            # Optionally log the error or add a placeholder message
+            conversation_logs[target_name].append("[Error processing turn]")
+            updates.append((source_name, target_name, "[Error processing turn]"))
+        finally:
+             # Reset thinking state
+             if hasattr(target_agent, 'thinking'): target_agent.thinking = False
+             # TODO: Update UI immediately if possible
+
+    # Handle agent movement (pass the processed responses for checking [MOVE] command)
+    _handle_agent_movement(edges, previous_connections, agent_last_processed_response)
     
     # Store current connections for next step comparison
     simulation_step_async.previous_connections = current_connections
@@ -512,26 +544,14 @@ def _handle_agent_movement(edges, previous_connections):
         
         # Log the movement
         movement_notification = f"[SYSTEM: {agent_name} has moved to a new location and will connect to a new person in the next step.]"
-        agent_lookup[agent_name].generate_response(movement_notification)
+        # TODO: Adapt this based on how backend agent stores/indicates movement
+        # For now, assume movement is handled via tool use in processed_response
+        pass # Movement notification is now part of the agent's internal processing/memory
 
 
-async def _process_agent_response_async(agent, message, source, target, is_new_connection):
-    """
-    Process a single agent response asynchronously
-    """
-    # Update agent state to thinking first (this will show the spinner)
-    agent.set_state(Status.THINKING)
-    agent.thinking = True
-    
-    # Generate response asynchronously
-    response = await agent.generate_response_async(message)
-    
-    # Update state and logs after getting response
-    agent.set_state(Status.TALKING)
-    agent.thinking = False
-    conversation_logs[agent.name].append(response)
-    
-    return source, target, response
+# Remove the old async helper function as logic is now in AgentManager
+# async def _process_agent_response_async(agent, message, source, target, is_new_connection):
+#     ...
 
 
 # -------------------------
@@ -1152,71 +1172,66 @@ def display_chat_history(edgeData, n_intervals):
         ])
     
     source = edgeData.get("source")
-    target = edgeData.get("target")
-    
-    # Interleave messages between source and target to create a conversation flow
+    source_name = edgeData.get("source")
+    target_name = edgeData.get("target")
+
+    source_agent = backend_agent_manager.agents.get(source_name)
+    target_agent = backend_agent_manager.agents.get(target_name)
+
+    if not source_agent or not target_agent:
+         return html.Div("One or both agents not found.", className="chat-notification")
+
+    # Interleave messages from both agents' histories
     chat_messages = []
-    
-    # Check if we have messages from both agents
-    source_msgs = conversation_logs.get(source, [])
-    target_msgs = conversation_logs.get(target, [])
-    
+
     # Add a connection notification
     chat_messages.append(
         html.Div(
             f"{source} and {target} are connected",
             className="chat-notification"
+            f"{source_name} and {target_name} are connected",
+            className="chat-notification"
         )
     )
-    
-    # Get the maximum number of messages between the two
-    max_msgs = max(len(source_msgs), len(target_msgs))
-    
-    # Interleave messages - each round has a message from source followed by target
-    for i in range(max_msgs):
-        # Add source message if available
-        if i < len(source_msgs):
-            msg = source_msgs[i]
-            is_system = '[SYSTEM:' in msg
-            
-            if is_system:
-                # System message
-                chat_messages.append(
-                    html.Div(
-                        msg.replace('[SYSTEM:', '').replace(']', ''),
-                        className="message system"
-                    )
-                )
-            else:
-                # Regular message from source - positioned on left
-                chat_messages.append(
-                    html.Div([
-                        html.Div(source, className="message-sender"),
-                        html.Div(msg)
-                    ], className="message left")
-                )
-        
-        # Add target message if available
-        if i < len(target_msgs):
-            msg = target_msgs[i]
-            is_system = '[SYSTEM:' in msg
-            
-            if is_system:
-                # System message
-                chat_messages.append(
-                    html.Div(
-                        msg.replace('[SYSTEM:', '').replace(']', ''),
-                        className="message system"
-                    )
-                )
-            else:
-                # Regular message from target
-                chat_messages.append(
-                    html.Div([
-                        html.Div(target, className="message-sender"),
-                        html.Div(msg)
-                    ], className="message right")
-                )
+
+    # Combine and sort conversation histories by timestamp (if available)
+    # For now, just interleave based on order assuming alternating turns
+    source_hist = source_agent.conversation_history
+    target_hist = target_agent.conversation_history
+
+    # Find messages involving the interaction between these two agents
+    # This requires a more sophisticated log structure or filtering based on context.
+    # Simplified approach: Display full history for both, interleaved.
+    # A better approach would be to store conversation context (e.g., who spoke to whom).
+
+    len_source = len(source_hist)
+    len_target = len(target_hist)
+    max_len = max(len_source, len_target)
+
+    for i in range(max_len):
+        # Display source agent's message if it exists and is from assistant
+        if i < len_source and source_hist[i]["role"] == "assistant":
+             msg_content = source_hist[i]["content"]
+             # TODO: Parse XML or structure to get displayable text if needed
+             display_text = msg_content # Assume content is displayable for now
+             chat_messages.append(
+                 html.Div([
+                     html.Div(source_name, className="message-sender"),
+                     html.Div(display_text)
+                 ], className="message left")
+             )
+
+        # Display target agent's message if it exists and is from assistant
+        if i < len_target and target_hist[i]["role"] == "assistant":
+             msg_content = target_hist[i]["content"]
+             # TODO: Parse XML or structure to get displayable text if needed
+             display_text = msg_content # Assume content is displayable for now
+             chat_messages.append(
+                 html.Div([
+                     html.Div(target_name, className="message-sender"),
+                     html.Div(display_text)
+                 ], className="message right")
+             )
     
     # Add JavaScript to auto-scroll to the bottom of conversation
     container_with_scroll = html.Div(
