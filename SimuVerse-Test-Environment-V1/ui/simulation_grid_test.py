@@ -1412,7 +1412,7 @@ def update_movement_stats(n_clicks, elements):
         ]),
     ])
 
-@app.callback(
+# @app.callback( # This decorator needs to be commented out as the function below is commented out
 # @app.callback(
 #     Output('cytoscape', 'elements', allow_duplicate=True),
 #     [Input({'type': 'memory-slider', 'index': ALL}, 'value'),
