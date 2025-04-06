@@ -24,7 +24,9 @@ class Agent:
         self.available_tools = available_tools
         self.location = location
         self.conversation_history: List[Dict[str, str]] = []
-    
+        self.thinking: bool = False # Added for UI state tracking
+        self.last_processed_response: Optional[Dict[str, Any]] = None # Added for UI state tracking
+
     def generate_response(self, updated_system_prompt: str) -> str:
         """
         Generate a response from the agent using the LLM.

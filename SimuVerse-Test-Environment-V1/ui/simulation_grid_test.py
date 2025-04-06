@@ -444,41 +444,57 @@ async def simulation_step_async():
                 input_message = "Hello" # Initial message if source hasn't spoken
 
         # Process the target agent's turn using the backend manager
-        # Note: This is currently synchronous. For async, we'd need await here and handle concurrency.
+        processed_response = None # Initialize in case of error
         try:
-            # Set thinking state (assuming backend agent has this attribute)
-            if hasattr(target_agent, 'thinking'): target_agent.thinking = True
-            # TODO: Update UI immediately to show thinking state if possible
+            # Set thinking state
+            target_agent.thinking = True
+            # TODO: Update UI immediately to show thinking state if possible (might need dcc.Store)
 
             processed_response = backend_agent_manager.process_agent_turn(target_name, input_message)
-            agent_last_processed_response[target_name] = processed_response # Store the result
+            target_agent.last_processed_response = processed_response # Store the result on the agent
 
-            # Update conversation logs based on the agent's internal history
-            if target_agent.conversation_history:
-                 # Get the latest assistant message added by process_agent_turn
-                 latest_response = target_agent.conversation_history[-1]
-                 if latest_response["role"] == "assistant":
-                     # Extract the actual response content (assuming it's within the reflection/tool use structure)
-                     # This might need adjustment based on the exact format of 'processed_response'
-                     display_response = processed_response.get("reflection", {}).get("description", "Thinking...") # Example: use description
-                     if not display_response and processed_response.get("tool_use"):
-                         display_response = f"Using tool: {processed_response['tool_use'].get('name', 'Unknown')}"
+            # Determine the display message based on the processed response
+            display_response = "..." # Default message
+            reflection = processed_response.get("reflection", {})
+            tool_use = processed_response.get("tool_use", {})
 
-                     conversation_logs[target_name].append(display_response)
-                     updates.append((source_name, target_name, display_response))
+            if reflection.get("description"):
+                display_response = reflection["description"]
+            elif tool_use.get("name"):
+                 # If no description, use tool info
+                 tool_name = tool_use.get("name", "Unknown tool")
+                 params = tool_use.get("parameters", {})
+                 param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+                 display_response = f"Using tool: {tool_name}({param_str})"
+            elif reflection.get("current_task"):
+                 # Fallback to task if no description or tool
+                 display_response = f"Task: {reflection['current_task']}"
+
+            # Add the parsed, user-friendly message to logs
+            conversation_logs[target_name].append({
+                "sender": target_name, # Identify sender for chat display
+                "message": display_response,
+                "type": "agent" # Mark as agent message
+            })
+            updates.append((source_name, target_name, display_response)) # Keep updates for potential other uses
 
         except Exception as e:
             st.error(f"Error processing turn for {target_name}: {e}")
-            # Optionally log the error or add a placeholder message
-            conversation_logs[target_name].append("[Error processing turn]")
-            updates.append((source_name, target_name, "[Error processing turn]"))
+            error_message = "[Error processing turn]"
+            conversation_logs[target_name].append({
+                "sender": "System",
+                "message": error_message,
+                "type": "system"
+            })
+            updates.append((source_name, target_name, error_message))
         finally:
              # Reset thinking state
-             if hasattr(target_agent, 'thinking'): target_agent.thinking = False
+             target_agent.thinking = False
              # TODO: Update UI immediately if possible
-             
+
              # --- Tool Execution ---
-             tool_use = processed_response.get("tool_use")
+             # Ensure processed_response is not None before accessing tool_use
+             tool_use = processed_response.get("tool_use") if processed_response else None
              if tool_use and tool_use.get("name") == "movement":
                  # TODO: Handle potential parameters like target_type, target_name if needed
                  # For now, just move the agent randomly
@@ -486,103 +502,62 @@ async def simulation_step_async():
                  agent_positions[target_name] = new_position
                  # Reset cooldown as the agent chose to move
                  agent_movement_cooldown[target_name] = 0
-                 # Log movement? Maybe add to conversation_logs or a separate event log
-                 conversation_logs[target_name].append(f"[SYSTEM: Moved to ({new_position['x']:.0f}, {new_position['y']:.0f})]")
-                 updates.append((source_name, target_name, "[SYSTEM: Moved location]"))
+                 # Log movement as a system message in the conversation log
+                 move_message = f"[Moved to ({new_position['x']:.0f}, {new_position['y']:.0f})]"
+                 conversation_logs[target_name].append({
+                     "sender": "System",
+                     "message": move_message,
+                     "type": "system"
+                 })
+                 # updates.append((source_name, target_name, "[SYSTEM: Moved location]")) # Redundant if logged
 
 
-    # Handle probabilistic agent movement (This part will be removed/refactored next)
-    _handle_agent_movement(edges, previous_connections, agent_last_processed_response)
+    # Handle probabilistic agent movement (This part will be removed next)
+    _handle_agent_movement(edges, previous_connections) # Removed agent_responses argument
     
     # Store current connections for next step comparison
     simulation_step_async.previous_connections = current_connections
     return updates
 
 
-def _handle_agent_movement(edges, previous_connections, agent_responses):
+def _handle_agent_movement(edges, previous_connections):
     """
-    Handle agent movement logic based on conversation duration (probabilistic).
-    Explicit movement via tools is handled in simulation_step_async.
+    Handle updates related to agent movement cooldown based on conversation duration.
+    Actual movement decisions are now handled via the 'movement' tool in simulation_step_async.
+    This function primarily updates the cooldown counter used for UI display.
     """
-    import random
+    # Update cooldown based on ongoing conversations
+    for edge in edges:
+        source = edge["data"]["source"]
+        target = edge["data"]["target"]
 
-    agents_to_move = []
+        # Check if it's an ongoing conversation (not new)
+        is_new_connection = previous_connections.get(target) != source
+        if not is_new_connection:
+            conversation_pair = (source, target)
+            rounds = conversation_rounds.get(conversation_pair, 0)
 
-    # Probabilistic movement based on conversation duration (Consider removing if tool use is sufficient)
-    # --- Start Commenting Out Probabilistic Movement ---
-    # for edge in edges:
-    #     source = edge["data"]["source"]
-    #     target = edge["data"]["target"]
-    #
-    #     # Skip agents that already decided to move explicitly (handled in simulation_step_async now)
-    #     # if source in agents_to_move or target in agents_to_move:
-    #     #     continue
-    #
-    #     conversation_pair = (source, target)
-    #     rounds = conversation_rounds.get(conversation_pair, 0)
-    #
-    #     # Increment movement cooldown for agents who have been talking for a while
-    #     if rounds >= 2:  # After 2-3 rounds of conversation
-    #         agent_movement_cooldown[source] += 1
-    #         agent_movement_cooldown[target] += 1
-    #
-    #     # Check if agents should consider moving
-    #     for agent_name in [source, target]:
-    #         # if agent_name in agents_to_move: # Already handled
-    #         #     continue
-    #
-    #         if agent_movement_cooldown[agent_name] >= 1:  # Agent has been in a conversation for enough rounds
-    #             # Probability increases the longer they've been talking to the same person
-    #             probability = min(0.9, agent_movement_probability[agent_name] * (1 + 0.2 * agent_movement_cooldown[agent_name]))
-    #
-    #             # Roll for movement
-    #             if random.random() < probability:
-    #                 # Check if agent hasn't already decided to move via tool (handled in simulation_step_async)
-    #                 # if agent_name not in agents_to_move:
-    #                 agents_to_move.append(agent_name)
-    #                 # Reset cooldown after deciding to move
-    #                 agent_movement_cooldown[agent_name] = 0
-    # --- End Commenting Out Probabilistic Movement ---
+            # Increment movement cooldown for agents who have been talking for a while
+            # This cooldown is now just for UI display probability, not triggering movement.
+            if rounds >= 1: # Start incrementing after 1 round
+                 # Only increment if the agent didn't just move via tool
+                 source_agent = backend_agent_manager.agents.get(source)
+                 target_agent = backend_agent_manager.agents.get(target)
 
+                 source_moved = source_agent and source_agent.last_processed_response and source_agent.last_processed_response.get('tool_use', {}).get('name') == 'movement'
+                 target_moved = target_agent and target_agent.last_processed_response and target_agent.last_processed_response.get('tool_use', {}).get('name') == 'movement'
 
-    # Move agents who decided to move probabilistically (Currently commented out)
-    moved_agents = set(agents_to_move) # Use set to avoid duplicates
-    for agent_name in moved_agents:
-        # source = edge["data"]["source"] # This block is part of the commented out logic above
-        # target = edge["data"]["target"] # This block is part of the commented out logic above
-        #
-        # # Skip agents that already decided to move explicitly
-        # if source in agents_to_move or target in agents_to_move:
-        #     continue
-        #
-        # conversation_pair = (source, target)
-        # rounds = conversation_rounds.get(conversation_pair, 0)
-        #
-        # # Increment movement cooldown for agents who have been talking for a while
-        # if rounds >= 2:  # After 2-3 rounds of conversation
-        #     agent_movement_cooldown[source] += 1
-        #     agent_movement_cooldown[target] += 1
-        #
-        # # Check if agents should consider moving
-        # for agent_name in [source, target]:
-        #     if agent_name in agents_to_move:
-        #         continue  # Skip if already moving
-        #
-        #     if agent_movement_cooldown[agent_name] >= 1:  # Agent has been in a conversation for enough rounds
-        #         # Probability increases the longer they've been talking to the same person
-        #         probability = min(0.9, agent_movement_probability[agent_name] * (1 + 0.2 * agent_movement_cooldown[agent_name]))
-        #
-        #         # Roll for movement
-        #         if random.random() < probability:
-        #             # Check if agent hasn't already decided to move via tool
-        #             if agent_name not in agents_to_move:
-        #                 agents_to_move.append(agent_name)
-        # This part is currently unreachable as the probabilistic logic is commented out
-        new_position = move_agent(agent_name, agent_positions)
-        agent_positions[agent_name] = new_position
-        # Log movement?
-        # conversation_logs[agent_name].append(f"[SYSTEM: Moved probabilistically to ({new_position['x']:.0f}, {new_position['y']:.0f})]")
-        # updates.append((source_name, target_name, "[SYSTEM: Moved location]")) # Need source/target if logging update
+                 if not source_moved:
+                     agent_movement_cooldown[source] = agent_movement_cooldown.get(source, 0) + 1
+                 if not target_moved:
+                     agent_movement_cooldown[target] = agent_movement_cooldown.get(target, 0) + 1
+        else:
+             # Reset cooldown if it's a new connection (already handled in simulation_step_async, but safe to repeat)
+             agent_movement_cooldown[target] = 0
+             # Also reset source cooldown if they initiated this new connection (less critical)
+             agent_movement_cooldown[source] = 0
+
+    # Probabilistic movement logic is removed. Agents move via the 'movement' tool.
 
 
 # Remove the old async helper function as logic is now in AgentManager
@@ -1210,61 +1185,48 @@ def display_chat_history(edgeData, n_intervals):
     source_name = edgeData.get("source")
     target_name = edgeData.get("target")
 
-    source_agent = backend_agent_manager.agents.get(source_name)
-    target_agent = backend_agent_manager.agents.get(target_name)
+    # Combine logs from both agents involved in the selected edge
+    # Note: conversation_logs now stores dicts: {"sender": name, "message": text, "type": "agent|system"}
+    combined_logs = []
+    if source_name in conversation_logs:
+        combined_logs.extend(conversation_logs[source_name])
+    if target_name in conversation_logs:
+        combined_logs.extend(conversation_logs[target_name])
 
-    if not source_agent or not target_agent:
-         return html.Div("One or both agents not found.", className="chat-notification")
+    # We don't have timestamps yet, so just display in the order they were added.
+    # A better approach would be to add timestamps in simulation_step_async and sort here.
+    # For now, this will show all messages from both agents, potentially out of order if they spoke simultaneously.
 
-    # Interleave messages from both agents' histories
     chat_messages = []
 
     # Add a connection notification
     chat_messages.append(
         html.Div(
-            f"{source_name} and {target_name} are connected",
+            f"Conversation between {source_name} and {target_name}",
             className="chat-notification"
         )
     )
 
-    # Combine and sort conversation histories by timestamp (if available)
-    # For now, just interleave based on order assuming alternating turns
-    source_hist = source_agent.conversation_history
-    target_hist = target_agent.conversation_history
+    # Display messages from the combined log
+    for log_entry in combined_logs:
+        sender = log_entry.get("sender", "Unknown")
+        message = log_entry.get("message", "")
+        msg_type = log_entry.get("type", "agent")
 
-    # Find messages involving the interaction between these two agents
-    # This requires a more sophisticated log structure or filtering based on context.
-    # Simplified approach: Display full history for both, interleaved.
-    # A better approach would be to store conversation context (e.g., who spoke to whom).
-
-    len_source = len(source_hist)
-    len_target = len(target_hist)
-    max_len = max(len_source, len_target)
-
-    for i in range(max_len):
-        # Display source agent's message if it exists and is from assistant
-        if i < len_source and source_hist[i]["role"] == "assistant":
-             msg_content = source_hist[i]["content"]
-             # TODO: Parse XML or structure to get displayable text if needed
-             display_text = msg_content # Assume content is displayable for now
-             chat_messages.append(
-                 html.Div([
-                     html.Div(source_name, className="message-sender"),
-                     html.Div(display_text)
-                 ], className="message left")
-             )
-
-        # Display target agent's message if it exists and is from assistant
-        if i < len_target and target_hist[i]["role"] == "assistant":
-             msg_content = target_hist[i]["content"]
-             # TODO: Parse XML or structure to get displayable text if needed
-             display_text = msg_content # Assume content is displayable for now
-             chat_messages.append(
-                 html.Div([
-                     html.Div(target_name, className="message-sender"),
-                     html.Div(display_text)
-                 ], className="message right")
-             )
+        if msg_type == "system":
+            chat_messages.append(
+                html.Div(message, className="message system")
+            )
+        else:
+            # Determine alignment based on which agent sent the message relative to the edge tap
+            # If sender is the source of the tapped edge, align left. If target, align right.
+            alignment = "left" if sender == source_name else "right"
+            chat_messages.append(
+                html.Div([
+                    html.Div(sender, className="message-sender"),
+                    html.Div(message)
+                ], className=f"message {alignment}")
+            )
     
     # Add JavaScript to auto-scroll to the bottom of conversation
     container_with_scroll = html.Div(
@@ -1352,22 +1314,18 @@ def update_movement_stats(n_clicks, elements):
     # Format movement status
     movement_info = []
     
-    # Check for movement requests - TODO: Adapt for backend agent structure
+    # Check for movement requests by looking at the last processed response
     movement_requests = []
     # Use backend_agent_manager.agents
     for name, agent in backend_agent_manager.agents.items():
-        # TODO: Implement wants_to_move logic based on backend agent's response/state
-        # Placeholder: Assume a method or attribute exists
-        if hasattr(agent, 'wants_to_move') and agent.wants_to_move():
-             movement_requests.append(name)
-        # Alternative: Check processed response if stored
-        # elif name in agent_last_processed_response and agent_last_processed_response[name].get('tool_use', {}).get('name') == 'movement':
-        #     movement_requests.append(name)
-
+        # Check the last_processed_response attribute stored on the agent
+        last_response = getattr(agent, 'last_processed_response', None)
+        if last_response and last_response.get('tool_use', {}).get('name') == 'movement':
+            movement_requests.append(name)
 
     for name, cooldown in agent_movement_cooldown.items():
         # Ensure agent exists before accessing probability
-        if name not in agent_movement_probability: continue
+        if name not in agent_movement_probability or name not in backend_agent_manager.agents: continue # Check agent exists
         probability = min(0.9, agent_movement_probability[name] * (1 + 0.2 * cooldown))
         probability_percent = int(probability * 100)
         

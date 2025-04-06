@@ -44,7 +44,7 @@ This document outlines the current state of the SimuVerse codebase, identifies a
     *   Pass necessary context (like the message from the other agent) to `process_agent_turn`.
 *   [x] **Memory Context in Prompt:** Ensure the `process_agent_turn` correctly retrieves memories via the `SubconsciousAgent` and injects the `MEMORY_CONTEXT` into the agent's system prompt before calling the LLM. (Done within `AgentManager.process_agent_turn`)
 *   [x] **Memory Creation:** Ensure `process_agent_turn` triggers memory creation in the `SubconsciousAgent` after a response is generated. (Done within `AgentManager.process_agent_turn`)
-*   [ ] **UI Updates:** Add UI elements (optional) to display retrieved memories or agent reflections derived from memory. (Partially done for thinking indicator, needs more work for chat history parsing and movement status).
+*   [ ] **UI Updates:** Add UI elements (optional) to display retrieved memories or agent reflections derived from memory. (Partially done: thinking indicator implemented, chat history parsing improved, movement status check improved. Needs further refinement for chat ordering/timestamps and potentially displaying memory info).
 *   [x] **Configuration:** Ensure Weaviate connection details are configurable (use `.env` or a config file). (Handled via `dotenv`)
 *   [ ] **Testing:** Add specific tests for the memory creation/retrieval cycle within the simulation.
 
@@ -53,9 +53,9 @@ This document outlines the current state of the SimuVerse codebase, identifies a
 *   [ ] **Address Async Issues:** Implement a stable approach for handling potentially long-running LLM calls within the Dash UI (synchronous with loading states, or proper async integration).
 
 ### IV. Feature Implementation & Improvements:
-*   [x] **Implement Tool Usage:** Parse the `<tool_use>` section of agent responses and execute the corresponding actions (starting with `movement`). (Basic movement tool execution implemented in `simulation_step_async`).
-*   [ ] **Implement Environment Interaction:** Flesh out tools like `scan` and `interact` by adding a simple environment state representation.
-*   [ ] **Enhance UI:** Implement features from `IMPROVEMENTS.md` (e.g., better conversation view, agent detail panels, relationship visualization). (Needs chat history parsing, movement status update).
+*   [x] **Implement Tool Usage:** Parse the `<tool_use>` section of agent responses and execute the corresponding actions (starting with `movement`). (Basic movement tool execution implemented in `simulation_step_async`, UI reflects movement tool usage).
+*   [ ] **Implement Environment Interaction:** Flesh out tools like `scan` and `interact` by adding a simple environment state representation. Tool execution needs refinement (e.g., use movement parameters).
+*   [ ] **Enhance UI:** Implement features from `IMPROVEMENTS.md` (e.g., better conversation view, agent detail panels, relationship visualization). (Chat history parsing improved, movement status updated. Needs chat ordering/timestamps, agent detail panels).
 *   [ ] **Implement Personality:** Integrate the personality system fully.
 *   [ ] **Logging:** Implement centralized logging using `python_backend/src/utils/logging.py` (once implemented).
 *   [ ] **Testing:** Create unit and integration tests.
