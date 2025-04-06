@@ -476,8 +476,22 @@ async def simulation_step_async():
              # Reset thinking state
              if hasattr(target_agent, 'thinking'): target_agent.thinking = False
              # TODO: Update UI immediately if possible
+             
+             # --- Tool Execution ---
+             tool_use = processed_response.get("tool_use")
+             if tool_use and tool_use.get("name") == "movement":
+                 # TODO: Handle potential parameters like target_type, target_name if needed
+                 # For now, just move the agent randomly
+                 new_position = move_agent(target_name, agent_positions)
+                 agent_positions[target_name] = new_position
+                 # Reset cooldown as the agent chose to move
+                 agent_movement_cooldown[target_name] = 0
+                 # Log movement? Maybe add to conversation_logs or a separate event log
+                 conversation_logs[target_name].append(f"[SYSTEM: Moved to ({new_position['x']:.0f}, {new_position['y']:.0f})]")
+                 updates.append((source_name, target_name, "[SYSTEM: Moved location]"))
 
-    # Handle agent movement (pass the processed responses for checking [MOVE] command)
+
+    # Handle probabilistic agent movement (This part will be removed/refactored next)
     _handle_agent_movement(edges, previous_connections, agent_last_processed_response)
     
     # Store current connections for next step comparison
@@ -487,24 +501,53 @@ async def simulation_step_async():
 
 def _handle_agent_movement(edges, previous_connections, agent_responses):
     """
-    Handle agent movement logic for both sync and async simulation step functions.
-    Now checks agent_responses for movement tool usage.
+    Handle agent movement logic based on conversation duration (probabilistic).
+    Explicit movement via tools is handled in simulation_step_async.
     """
     import random
 
     agents_to_move = []
 
-    # Check for explicit movement requests via tool usage
-    for name, response_data in agent_responses.items():
-        tool_use = response_data.get("tool_use", {})
-        if tool_use.get("name") == "movement":
-            # TODO: Optionally use parameters like target_type, target_name if needed
-            if name not in agents_to_move:
-                 agents_to_move.append(name)
-            agent_movement_cooldown[name] = 0 # Reset cooldown if explicitly moving
+    # Probabilistic movement based on conversation duration (Consider removing if tool use is sufficient)
+    # --- Start Commenting Out Probabilistic Movement ---
+    # for edge in edges:
+    #     source = edge["data"]["source"]
+    #     target = edge["data"]["target"]
+    #
+    #     # Skip agents that already decided to move explicitly (handled in simulation_step_async now)
+    #     # if source in agents_to_move or target in agents_to_move:
+    #     #     continue
+    #
+    #     conversation_pair = (source, target)
+    #     rounds = conversation_rounds.get(conversation_pair, 0)
+    #
+    #     # Increment movement cooldown for agents who have been talking for a while
+    #     if rounds >= 2:  # After 2-3 rounds of conversation
+    #         agent_movement_cooldown[source] += 1
+    #         agent_movement_cooldown[target] += 1
+    #
+    #     # Check if agents should consider moving
+    #     for agent_name in [source, target]:
+    #         # if agent_name in agents_to_move: # Already handled
+    #         #     continue
+    #
+    #         if agent_movement_cooldown[agent_name] >= 1:  # Agent has been in a conversation for enough rounds
+    #             # Probability increases the longer they've been talking to the same person
+    #             probability = min(0.9, agent_movement_probability[agent_name] * (1 + 0.2 * agent_movement_cooldown[agent_name]))
+    #
+    #             # Roll for movement
+    #             if random.random() < probability:
+    #                 # Check if agent hasn't already decided to move via tool (handled in simulation_step_async)
+    #                 # if agent_name not in agents_to_move:
+    #                 agents_to_move.append(agent_name)
+    #                 # Reset cooldown after deciding to move
+    #                 agent_movement_cooldown[agent_name] = 0
+    # --- End Commenting Out Probabilistic Movement ---
 
-    # Check for probabilistic movement based on conversation duration
-    for edge in edges:
+
+    # Move agents who decided to move probabilistically (Currently commented out)
+    moved_agents = set(agents_to_move) # Use set to avoid duplicates
+    for agent_name in moved_agents:
         source = edge["data"]["source"]
         target = edge["data"]["target"]
         
@@ -534,18 +577,12 @@ def _handle_agent_movement(edges, previous_connections, agent_responses):
                     # Check if agent hasn't already decided to move via tool
                     if agent_name not in agents_to_move:
                         agents_to_move.append(agent_name)
-                        # Reset cooldown after deciding to move
-                        agent_movement_cooldown[agent_name] = 0
-
-    # Move agents who decided to move
-    moved_agents = set(agents_to_move) # Use set to avoid duplicates
-    for agent_name in moved_agents:
+        # This part is currently unreachable as the probabilistic logic is commented out
         new_position = move_agent(agent_name, agent_positions)
         agent_positions[agent_name] = new_position
-
-        # Movement notification is now handled internally by the agent/memory system
-        # No need to generate a separate notification here.
-        # agent_lookup[agent_name].generate_response(movement_notification)
+        # Log movement?
+        conversation_logs[agent_name].append(f"[SYSTEM: Moved probabilistically to ({new_position['x']:.0f}, {new_position['y']:.0f})]")
+        # updates.append((source_name, target_name, "[SYSTEM: Moved location]")) # Need source/target if logging update
 
 
 # Remove the old async helper function as logic is now in AgentManager
@@ -1186,8 +1223,6 @@ def display_chat_history(edgeData, n_intervals):
     # Add a connection notification
     chat_messages.append(
         html.Div(
-            f"{source} and {target} are connected",
-            className="chat-notification"
             f"{source_name} and {target_name} are connected",
             className="chat-notification"
         )
