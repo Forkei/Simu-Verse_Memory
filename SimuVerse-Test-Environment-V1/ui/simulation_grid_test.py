@@ -261,12 +261,27 @@ def generate_elements(positions):
     return elements
 
 
-def move_agent(agent_name, current_positions):
+def move_agent(agent_name: str, current_positions: dict, target_type: Optional[str] = None, target_name: Optional[str] = None):
     """
-    Move an agent to a new random position within grid bounds.
+    Move an agent towards a target or randomly if no specific target.
+    Placeholder: Currently logs target but still moves randomly.
     """
     import random
-    
+    import logging # Add logging
+    from typing import Optional # Add Optional for type hinting
+
+    # Log the intended move
+    if target_type and target_name:
+        logging.info(f"Agent '{agent_name}' intends to move towards {target_type} '{target_name}'. (Executing random move for now)")
+    else:
+        logging.info(f"Agent '{agent_name}' moving randomly (no specific target).")
+
+
+    # --- Placeholder: Random Movement ---
+    # TODO: Implement targeted movement based on target_type and target_name
+    # e.g., if target_type == 'agent', move towards agent_positions[target_name]
+    # e.g., if target_type == 'landmark', move towards predefined landmark coordinates
+
     # Current position
     current_x = current_positions[agent_name]["x"]
     current_y = current_positions[agent_name]["y"]
