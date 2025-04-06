@@ -35,17 +35,17 @@ This document outlines the current state of the SimuVerse codebase, identifies a
 *   [ ] **Centralize Configuration:** Move API keys, model names, prompts, and other configurations out of scripts and into dedicated config files (`config.yaml`?) or rely solely on `.env` loaded centrally.
 
 ### II. Memory System Integration:
-*   [ ] **Instantiate Managers:** In `simulation_grid_test.py`, instantiate `LLMManager` and `WeaviateClient` (or `MockWeaviateClient`).
-*   [ ] **Instantiate AgentManager:** Pass the `LLMManager` and `WeaviateClient` to the `python_backend.src.agents.agent_manager.AgentManager` constructor.
-*   [ ] **Agent Creation:** Modify `simulation_grid_test.py` to use the *backend's* `AgentManager.create_agent` method for creating agents. This will automatically set up the `SubconsciousAgent` as well.
-*   [ ] **Simulation Loop Integration:**
-    *   Modify `simulation_step` in `simulation_grid_test.py`.
+*   [x] **Instantiate Managers:** In `simulation_grid_test.py`, instantiate `LLMManager` and `WeaviateClient` (or `MockWeaviateClient`).
+*   [x] **Instantiate AgentManager:** Pass the `LLMManager` and `WeaviateClient` to the `python_backend.src.agents.agent_manager.AgentManager` constructor.
+*   [x] **Agent Creation:** Modify `simulation_grid_test.py` to use the *backend's* `AgentManager.create_agent` method for creating agents. This will automatically set up the `SubconsciousAgent` as well.
+*   [x] **Simulation Loop Integration:**
+    *   Modify `simulation_step_async` in `simulation_grid_test.py`. (Note: Using `simulation_step_async`)
     *   Instead of agents directly calling `generate_response`, the loop should call `AgentManager.process_agent_turn` for the relevant agent.
     *   Pass necessary context (like the message from the other agent) to `process_agent_turn`.
-*   [ ] **Memory Context in Prompt:** Ensure the `process_agent_turn` correctly retrieves memories via the `SubconsciousAgent` and injects the `MEMORY_CONTEXT` into the agent's system prompt before calling the LLM.
-*   [ ] **Memory Creation:** Ensure `process_agent_turn` triggers memory creation in the `SubconsciousAgent` after a response is generated.
-*   [ ] **UI Updates:** Add UI elements (optional) to display retrieved memories or agent reflections derived from memory.
-*   [ ] **Configuration:** Ensure Weaviate connection details are configurable (use `.env` or a config file).
+*   [x] **Memory Context in Prompt:** Ensure the `process_agent_turn` correctly retrieves memories via the `SubconsciousAgent` and injects the `MEMORY_CONTEXT` into the agent's system prompt before calling the LLM. (Done within `AgentManager.process_agent_turn`)
+*   [x] **Memory Creation:** Ensure `process_agent_turn` triggers memory creation in the `SubconsciousAgent` after a response is generated. (Done within `AgentManager.process_agent_turn`)
+*   [ ] **UI Updates:** Add UI elements (optional) to display retrieved memories or agent reflections derived from memory. (Partially done for thinking indicator, needs more work for chat history parsing and movement status).
+*   [x] **Configuration:** Ensure Weaviate connection details are configurable (use `.env` or a config file). (Handled via `dotenv`)
 *   [ ] **Testing:** Add specific tests for the memory creation/retrieval cycle within the simulation.
 
 ### III. Bug Fixes:
@@ -53,9 +53,9 @@ This document outlines the current state of the SimuVerse codebase, identifies a
 *   [ ] **Address Async Issues:** Implement a stable approach for handling potentially long-running LLM calls within the Dash UI (synchronous with loading states, or proper async integration).
 
 ### IV. Feature Implementation & Improvements:
-*   [ ] **Implement Tool Usage:** Parse the `<tool_use>` section of agent responses and execute the corresponding actions (starting with `movement`).
+*   [x] **Implement Tool Usage:** Parse the `<tool_use>` section of agent responses and execute the corresponding actions (starting with `movement`). (Basic movement tool execution implemented in `simulation_step_async`).
 *   [ ] **Implement Environment Interaction:** Flesh out tools like `scan` and `interact` by adding a simple environment state representation.
-*   [ ] **Enhance UI:** Implement features from `IMPROVEMENTS.md` (e.g., better conversation view, agent detail panels, relationship visualization).
+*   [ ] **Enhance UI:** Implement features from `IMPROVEMENTS.md` (e.g., better conversation view, agent detail panels, relationship visualization). (Needs chat history parsing, movement status update).
 *   [ ] **Implement Personality:** Integrate the personality system fully.
 *   [ ] **Logging:** Implement centralized logging using `python_backend/src/utils/logging.py` (once implemented).
 *   [ ] **Testing:** Create unit and integration tests.
