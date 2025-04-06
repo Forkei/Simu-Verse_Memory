@@ -249,8 +249,8 @@ def generate_elements(positions):
                 "label": name,
                 "movement_probability": probability,
                 "class": movement_class,
-                "state": agent_state,
-                "thinking": thinking
+                "state": agent_state, # TODO: Use backend agent state if available
+                "thinking": thinking # Use the 'thinking' attribute
             },
             "position": {"x": pos["x"], "y": pos["y"]}
         })
@@ -1135,10 +1135,9 @@ def update_graph(current_elements, n_clicks, async_n_clicks, node_data, n_interv
     thinking_styles = []
     for name in backend_agent_manager.agents.keys():
         agent = backend_agent_manager.agents[name]
-        # TODO: Determine how to represent 'thinking' state from backend agent/manager
-        # Placeholder: Assume 'thinking' attribute exists or check a specific state if available
-        is_thinking = getattr(agent, 'thinking', False) # or check agent.state if applicable
-        if is_thinking: # or agent.state == BackendStatus.THINKING:
+        # Use the 'thinking' attribute set during simulation_step_async
+        is_thinking = getattr(agent, 'thinking', False)
+        if is_thinking:
             thinking_styles.append({"display": "inline-block"})
         else:
             thinking_styles.append({"display": "none"})
@@ -1316,9 +1315,9 @@ def update_thinking_indicators(n_intervals):
     # Use backend_agent_manager.agents
     for name in backend_agent_manager.agents.keys():
         agent = backend_agent_manager.agents[name]
-        # TODO: Determine how to represent 'thinking' state from backend agent/manager
-        is_thinking = getattr(agent, 'thinking', False) # or check agent.state if applicable
-        if is_thinking: # or agent.state == BackendStatus.THINKING:
+        # Use the 'thinking' attribute set during simulation_step_async
+        is_thinking = getattr(agent, 'thinking', False)
+        if is_thinking:
             thinking_styles.append({"display": "inline-block"})
         else:
             thinking_styles.append({"display": "none"})
