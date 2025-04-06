@@ -9,28 +9,142 @@ from dash import ALL
 import dash_bootstrap_components as dbc
 from dotenv import load_dotenv
 
-# from modules.framework import create_agent
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.agent_manager import create_agent_with_llm, Agent, AgentManager, Status
+import json
+import asyncio
+
+# Adjust path to import from python_backend
+backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'python_backend', 'src'))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
+
+from llm.llm_manager import LLMManager
+from memory.weaviate_client import WeaviateClient
+# Alias the backend AgentManager to avoid name collision
+from agents.agent_manager import AgentManager as BackendAgentManager
+from agents.agent import Agent as BackendAgent # Import backend Agent for type hinting if needed
+
+# Keep the original AgentManager import for Status enum, or adjust later
+from src.agent_manager import Status, Agent as UIAgent # Alias the UI Agent if needed
+
+# Remove the old create_agent_with_llm import if no longer used directly
+# from src.agent_manager import create_agent_with_llm
 
 # -------------------------
-# Load API Keys and Create Agents
+# Load API Keys, Instantiate Managers, Load Tools, and Create Agents
 # -------------------------
 
 load_dotenv(override=True)
 openai_api_key = os.getenv("OPENAI_API_KEY")
 claude_api_key = os.getenv("CLAUDE_API_KEY")
+weaviate_url = os.getenv("WEAVIATE_URL", "http://localhost:8080") # Default if not set
 
 if not openai_api_key or not claude_api_key:
-    st.error("One or more API keys not found in environment variables.")
+    st.error("OpenAI or Claude API key not found in environment variables.")
+    st.stop()
+if not weaviate_url:
+    st.error("WEAVIATE_URL not found in environment variables.")
     st.stop()
 
-# Create agents using the integrated AgentManager framework
-james = create_agent_with_llm(
-    agent_id=1,
-    name="James",
+# Instantiate Managers
+llm_manager = LLMManager() # Assumes API keys are loaded via dotenv in LLMManager itself
+try:
+    # Assuming Weaviate doesn't need an API key for local setup
+    weaviate_client = WeaviateClient(url=weaviate_url, api_key=None)
+except Exception as e:
+    st.error(f"Failed to connect to Weaviate at {weaviate_url}: {e}")
+    st.stop()
+
+backend_agent_manager = BackendAgentManager(llm_manager=llm_manager, weaviate_client=weaviate_client)
+
+# Load Tools
+tools_path = os.path.join(backend_path, "config", "tools.json")
+try:
+    with open(tools_path, 'r') as f:
+        tools_config = json.load(f)
+    all_tool_names = list(tools_config.keys())
+except Exception as e:
+    st.error(f"Failed to load tools from {tools_path}: {e}")
+    st.stop()
+
+# Define Agent Personalities (from existing system prompts)
+james_personality = (
+    "You are James, a friendly 20 yr old male college student in a social simulation. "
+    "Respond naturally in a conversational tone and limit your reply to no more than 2 sentences. "
+    "After talking to the same person for 2-3 rounds, you prefer to move and meet someone new. "
+    "You're curious and enjoy meeting different people. "
+    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
+    "This will cause you to physically move in the simulation to meet someone else."
+)
+
+jade_personality = (
+    "You are Jade, an engaging 20 yr old female computer scientist in a social simulation. "
+    "Respond concisely and in a human-like manner in no more than 2 sentences. "
+    "After talking to the same person for 2-3 exchanges, you prefer to move around and meet new people. "
+    "You're outgoing and enjoy diverse conversations. "
+    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
+    "This will cause you to physically move in the simulation to meet someone else."
+)
+
+jesse_personality = (
+    "You are Jesse, a 20 yr old male soldier from South Korea in a social simulation. "
+    "Respond concisely and in a human-like manner in no more than 2 sentences. "
+    "After talking to the same person for 2-3 exchanges, you like to move to a new location and meet different people. "
+    "You're disciplined but enjoy socializing with various individuals. "
+    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
+    "This will cause you to physically move in the simulation to meet someone else."
+)
+
+jamal_personality = (
+    "You are Jamal, a 20 yr old male electrician working at NASA in a social simulation. "
+    "Respond naturally in a conversational tone and limit your reply to no more than 2 sentences. "
+    "After talking to the same person for 2-3 exchanges, you tend to move to a different area to meet new people. "
+    "You're technically minded but enjoy diverse social interactions. "
+    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
+    "This will cause you to physically move in the simulation to meet someone else."
+)
+
+
+# Create agents using the backend AgentManager
+# Note: The backend Agent doesn't seem to use provider/api_key/model directly in create_agent
+# It relies on the LLMManager passed during AgentManager initialization.
+# We pass the personality description and the list of all tools.
+default_location = "simulation_grid"
+
+james = backend_agent_manager.create_agent(
+    agent_name="James",
+    personality=james_personality,
+    available_tools=all_tool_names,
+    location=default_location
+)
+
+jade = backend_agent_manager.create_agent(
+    agent_name="Jade",
+    personality=jade_personality,
+    available_tools=all_tool_names,
+    location=default_location
+)
+
+jesse = backend_agent_manager.create_agent(
+    agent_name="Jesse",
+    personality=jesse_personality,
+    available_tools=all_tool_names,
+    location=default_location
+)
+
+jamal = backend_agent_manager.create_agent(
+    agent_name="Jamal",
+    personality=jamal_personality,
+    available_tools=all_tool_names,
+    location=default_location
+)
+
+
+# Remove the old agent creation calls
+# james = create_agent_with_llm(
+#     agent_id=1,
+#     name="James",
     provider="openai",
     api_key=openai_api_key,
     model="gpt-4o-mini",
@@ -43,74 +157,13 @@ james = create_agent_with_llm(
         "This will cause you to physically move in the simulation to meet someone else."
     ),
     memory_enabled=True,
-    personality_strength=0.7
-)
 
-jade = create_agent_with_llm(
-    agent_id=2,
-    name="Jade",
-    provider="claude",
-    api_key=claude_api_key,
-    model="claude-3-5-haiku-20241022",
-    system_prompt=(
-        "You are Jade, an engaging 20 yr old female computer scientist in a social simulation. "
-        "Respond concisely and in a human-like manner in no more than 2 sentences. "
-        "After talking to the same person for 2-3 exchanges, you prefer to move around and meet new people. "
-        "You're outgoing and enjoy diverse conversations. "
-        "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-        "This will cause you to physically move in the simulation to meet someone else."
-    ),
-    memory_enabled=True,
-    personality_strength=0.5
-)
+# Update the agent_lookup dictionary with the agents created by the backend manager
+agent_lookup = backend_agent_manager.agents
 
-jesse = create_agent_with_llm(
-    agent_id=3,
-    name="Jesse",
-    provider="claude",
-    api_key=claude_api_key,
-    model="claude-3-5-haiku-20241022",
-    system_prompt=(
-        "You are Jesse, a 20 yr old male soldier from South Korea in a social simulation. "
-        "Respond concisely and in a human-like manner in no more than 2 sentences. "
-        "After talking to the same person for 2-3 exchanges, you like to move to a new location and meet different people. "
-        "You're disciplined but enjoy socializing with various individuals. "
-        "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-        "This will cause you to physically move in the simulation to meet someone else."
-    ),
-    memory_enabled=True,
-    personality_strength=0.9
-)
-
-jamal = create_agent_with_llm(
-    agent_id=4,
-    name="Jamal",
-    provider="openai",
-    api_key=openai_api_key,
-    model="gpt-4o-mini",
-    system_prompt=(
-        "You are Jamal, a 20 yr old male electrician working at NASA in a social simulation. "
-        "Respond naturally in a conversational tone and limit your reply to no more than 2 sentences. "
-        "After talking to the same person for 2-3 exchanges, you tend to move to a different area to meet new people. "
-        "You're technically minded but enjoy diverse social interactions. "
-        "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-        "This will cause you to physically move in the simulation to meet someone else."
-    ),
-    memory_enabled=True,
-    personality_strength=0.3
-)
-
-# Create the AgentManager
-agents = [james, jade, jesse, jamal]
-agent_manager = AgentManager(agents)
-
-# Dictionary mapping agent names to agent objects for lookup
-agent_lookup = {
-    "James": james,
-    "Jade": jade,
-    "Jesse": jesse,
-    "Jamal": jamal
-}
+# Remove the old AgentManager instantiation
+# agents = [james, jade, jesse, jamal]
+# agent_manager = AgentManager(agents)
 
 # -------------------------
 # Simulation Data Structures
@@ -992,10 +1045,11 @@ app.layout = html.Div([
     [Input('cytoscape', 'elements'),
      Input('step-btn', 'n_clicks'),
      Input('async-step-btn', 'n_clicks'),
-     Input('cytoscape', 'tapNodeData')],
+     Input('cytoscape', 'tapNodeData'),
+     Input("refresh-interval", "n_intervals")], # Add interval to refresh thinking state in graph
     [State('cytoscape', 'elements')]
 )
-def update_graph(current_elements, n_clicks, async_n_clicks, node_data, stored_elements):
+def update_graph(current_elements, n_clicks, async_n_clicks, node_data, n_intervals, stored_elements):
     ctx = dash.callback_context
     triggered = ctx.triggered[0]['prop_id'] if ctx.triggered else ""
 
@@ -1031,17 +1085,20 @@ def update_graph(current_elements, n_clicks, async_n_clicks, node_data, stored_e
         thread.daemon = True
         thread.start()
 
-    # Get current agent states for thinking indicators
+    # Get current agent states for thinking indicators (using backend agents)
     thinking_styles = []
-    for name in agent_lookup.keys():
-        agent = agent_lookup[name]
-        # Show spinner if agent is thinking
-        if hasattr(agent, 'thinking') and agent.thinking or agent.state == Status.THINKING:
+    for name in backend_agent_manager.agents.keys():
+        agent = backend_agent_manager.agents[name]
+        # TODO: Determine how to represent 'thinking' state from backend agent/manager
+        # Placeholder: Assume 'thinking' attribute exists or check a specific state if available
+        is_thinking = getattr(agent, 'thinking', False) # or check agent.state if applicable
+        if is_thinking: # or agent.state == BackendStatus.THINKING:
             thinking_styles.append({"display": "inline-block"})
         else:
             thinking_styles.append({"display": "none"})
 
     # Return updated elements and thinking indicator styles
+    # Note: generate_elements needs to be updated to read state from backend agents
     return [generate_elements(agent_positions), *thinking_styles]
 
 
@@ -1215,12 +1272,14 @@ def display_chat_history(edgeData, n_intervals):
     prevent_initial_call=True
 )
 def update_thinking_indicators(n_intervals):
-    """Update the thinking indicators based on agent state"""
+    """Update the thinking indicators based on backend agent state"""
     thinking_styles = []
-    for name in agent_lookup.keys():
-        agent = agent_lookup[name]
-        # Show spinner if agent is thinking
-        if hasattr(agent, 'thinking') and agent.thinking or agent.state == Status.THINKING:
+    # Use backend_agent_manager.agents
+    for name in backend_agent_manager.agents.keys():
+        agent = backend_agent_manager.agents[name]
+        # TODO: Determine how to represent 'thinking' state from backend agent/manager
+        is_thinking = getattr(agent, 'thinking', False) # or check agent.state if applicable
+        if is_thinking: # or agent.state == BackendStatus.THINKING:
             thinking_styles.append({"display": "inline-block"})
         else:
             thinking_styles.append({"display": "none"})
@@ -1255,13 +1314,22 @@ def update_movement_stats(n_clicks, elements):
     # Format movement status
     movement_info = []
     
-    # Check for movement requests - now using the agent manager
+    # Check for movement requests - TODO: Adapt for backend agent structure
     movement_requests = []
-    for name, agent in agent_lookup.items():
-        if agent.wants_to_move():
-            movement_requests.append(name)
-    
+    # Use backend_agent_manager.agents
+    for name, agent in backend_agent_manager.agents.items():
+        # TODO: Implement wants_to_move logic based on backend agent's response/state
+        # Placeholder: Assume a method or attribute exists
+        if hasattr(agent, 'wants_to_move') and agent.wants_to_move():
+             movement_requests.append(name)
+        # Alternative: Check processed response if stored
+        # elif name in agent_last_processed_response and agent_last_processed_response[name].get('tool_use', {}).get('name') == 'movement':
+        #     movement_requests.append(name)
+
+
     for name, cooldown in agent_movement_cooldown.items():
+        # Ensure agent exists before accessing probability
+        if name not in agent_movement_probability: continue
         probability = min(0.9, agent_movement_probability[name] * (1 + 0.2 * cooldown))
         probability_percent = int(probability * 100)
         
@@ -1306,30 +1374,32 @@ def update_movement_stats(n_clicks, elements):
     ])
 
 @app.callback(
-    Output('cytoscape', 'elements', allow_duplicate=True),
-    [Input({'type': 'memory-slider', 'index': ALL}, 'value'),
-     Input({'type': 'personality-slider', 'index': ALL}, 'value')],
-    [State({'type': 'memory-slider', 'index': ALL}, 'id'),
-     State({'type': 'personality-slider', 'index': ALL}, 'id'),
-     State('cytoscape', 'elements')],
-    prevent_initial_call=True
-)
-def update_agent_settings(memory_values, personality_values, memory_ids, personality_ids, elements):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return elements
-        
-    # Update memory settings
-    for slider_id, value in zip(memory_ids, memory_values):
-        agent_name = slider_id['index']
-        agent_lookup[agent_name].set_memory_enabled(bool(value))
-        
-    # Update personality settings
-    for slider_id, value in zip(personality_ids, personality_values):
-        agent_name = slider_id['index']
-        agent_lookup[agent_name].set_personality_strength(float(value))
-        
-    return elements  # Return existing elements to refresh display
+# @app.callback(
+#     Output('cytoscape', 'elements', allow_duplicate=True),
+#     [Input({'type': 'memory-slider', 'index': ALL}, 'value'),
+#      Input({'type': 'personality-slider', 'index': ALL}, 'value')],
+#     [State({'type': 'memory-slider', 'index': ALL}, 'id'),
+#      State({'type': 'personality-slider', 'index': ALL}, 'id'),
+#      State('cytoscape', 'elements')],
+#     prevent_initial_call=True
+# )
+# def update_agent_settings(memory_values, personality_values, memory_ids, personality_ids, elements):
+#     # TODO: Re-enable and adapt this callback once backend Agent supports these settings
+#     ctx = dash.callback_context
+#     if not ctx.triggered:
+#         return elements
+#
+#     # Update memory settings
+#     for slider_id, value in zip(memory_ids, memory_values):
+#         agent_name = slider_id['index']
+#         # backend_agent_manager.agents[agent_name].set_memory_enabled(bool(value)) # Placeholder
+#
+#     # Update personality settings
+#     for slider_id, value in zip(personality_ids, personality_values):
+#         agent_name = slider_id['index']
+#         # backend_agent_manager.agents[agent_name].set_personality_strength(float(value)) # Placeholder
+#
+#     return elements  # Return existing elements to refresh display
 
 if __name__ == '__main__':
     app.run(debug=True, port=8050)
