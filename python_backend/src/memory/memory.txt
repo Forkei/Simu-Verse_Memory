@@ -1,0 +1,16 @@
+Memory:
+
+All low level operations involving the weaviate database. Does basic CRUD operations as well as grouping and other things involved with 
+accessing and manipulating the database
+
+memory_utils:
+
+Tools to help set up the connection with the database as well as formatting I/O to and fro the database
+
+weaviate_client:
+
+Does the actual CRUD operations as well as novel features such as grouping and determining importance
+
+mock_weaviate_client:
+
+Mock version of the weaviate client for testign without an actual weaviate instance running
