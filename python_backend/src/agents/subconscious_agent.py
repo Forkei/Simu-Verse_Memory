@@ -193,6 +193,47 @@ class SubconsciousAgent:
         except Exception as e:
             logger.error(f"Failed to add memory object to Weaviate for {self.agent_name}: {e}", exc_info=True)
             return {} # Return empty dict on failure
+        
+    def get_opinion_impacting_memories(self,subject):
+        """
+        Retrieve relevant memories to form an opinion
+        
+        Args:
+            subject: the subject to retrieve opinion forming memories on
+            
+        Returns:
+            List of relevant memories
+        """
+        # Generate memory queries using LLM
+        prompt = f"Create memory queries that would find memories that would be necessary to develop an opinion on {subject}\n"
+        logger.debug(f"Generating memory retrieval prompt for {self.agent_name}")
+        queries_xml = self.llm_manager.generate_response(prompt, self.memory_retrieval_prompt)
+        logger.debug(f"Received memory queries XML from LLM for {self.agent_name}: {queries_xml[:100]}...")
+    
+        # Parse the XML response to get queries
+        queries = self._parse_memory_queries_xml(queries_xml)
+        if not queries:
+             logger.warning(f"Failed to parse memory queries XML for {self.agent_name}. XML: {queries_xml}")
+             return [] # Return empty list if parsing failed
+
+        # Execute each query and collect results
+        all_memories = []
+        for query in queries:
+            memories = self._execute_memory_query(query)
+            all_memories.extend(memories)
+        
+        # Remove duplicates (based on memory ID)
+        unique_memories = []
+        memory_ids = set()
+        for memory in all_memories:
+            if memory["id"] not in memory_ids:
+                unique_memories.append(memory)
+                memory_ids.add(memory["id"])
+        
+        # Sort by importance (descending) and return top results
+        unique_memories.sort(key=lambda x: x.get("importance", 0), reverse=True)
+        logger.info(f"Retrieved {len(unique_memories)} unique memories for {self.agent_name}.")
+        return unique_memories[:9]  # Return up to 9 memories (3 per query)
 
     def _parse_memory_xml(self, xml_response: str) -> Optional[Dict[str, Any]]:
         """

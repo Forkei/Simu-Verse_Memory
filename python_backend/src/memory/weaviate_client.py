@@ -2,13 +2,6 @@ import uuid
 import logging
 from typing import Dict, List, Any, Optional
 import weaviate
-import weaviate.classes as wvc # Import classes for v4 syntax
-
-# Setup logging
-from ..utils.logging import setup_logging
-setup_logging()
-logger = logging.getLogger(__name__)
-
 from ..llm.llm_manager import LLMManager
 
 class WeaviateClient:
@@ -35,25 +28,14 @@ class WeaviateClient:
         
         # Initialize client
         try:
-            # Parse URL to get host and port
-            parsed_url = url.replace("http://", "").replace("https://", "")
-            host = parsed_url.split(":")[0] if ":" in parsed_url else parsed_url
-            port = int(parsed_url.split(":")[-1]) if ":" in parsed_url else 8080
-            
-            # Connect to Weaviate
             self.client = weaviate.connect_to_local(
-                host=host,
-                port=port,
-                # grpc_port=50051, # Uncomment if using gRPC
+                host=url.replace("http://", "").replace("https://", "").split(":")[0],
+                port=int(url.split(":")[-1]) if ":" in url else 8080,
                 auth_credentials=auth_config
             )
-
-            # Test connection by getting meta info
-            meta = self.client.get_meta()
-            version = meta.get("version", "unknown")
-            logger.info(f"Connected to Weaviate version {version} at {url}")
+            logging.info(f"Connected to Weaviate at {url}")
         except Exception as e:
-            logger.error(f"Failed to connect to Weaviate: {e}", exc_info=True)
+            logging.error(f"Failed to connect to Weaviate: {e}")
             raise
     
     def set_llm_manager(self, llm_manager: LLMManager) -> None:
@@ -72,44 +54,94 @@ class WeaviateClient:
         Args:
             collection_name: Name of the collection to create
         """
-    try:
-        # Check if collection exists using the v4 client method
-        if self.client.collections.exists(collection_name):
-            logger.info(f"Collection '{collection_name}' already exists.")
-            return
-
-        # Define properties using v4 classes
-        properties = [
-            wvc.config.Property(name="summary", data_type=wvc.config.DataType.TEXT),
-            wvc.config.Property(name="category", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
-            wvc.config.Property(name="keywords", data_type=wvc.config.DataType.TEXT_ARRAY, skip_vectorization=True),
-            wvc.config.Property(name="critical_information", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
-            wvc.config.Property(name="importance", data_type=wvc.config.DataType.INT, skip_vectorization=True),
-            wvc.config.Property(name="timestamp", data_type=wvc.config.DataType.TEXT, skip_vectorization=True), # Consider DATE type if needed
-            wvc.config.Property(name="location", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
-            wvc.config.Property(name="agent", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
-            # Weaviate generates UUIDs automatically, no need for an explicit 'id' property unless it's a custom ID
-        ]
-
-        # Create the collection with properties and vectorizer config
-        self.client.collections.create(
-            name=collection_name,
-            description=f"Memory collection for {collection_name}",
-            properties=properties,
-            vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_transformers(
-                vectorize_collection_name=False
-            ),
-            # Define which property to vectorize (usually the main text content)
-            vector_index_config=wvc.config.Configure.vector_index(
-                 index_type=wvc.config.VectorIndexType.HNSW, # Or other types like FLAT
-                 distance_metric=wvc.config.DistanceMetric.COSINE # Or other metrics
+        # Check if collection exists
+        try:
+            # Check if collection exists
+            collections = self.client.collections.list_all()
+            collection_names = [c.name for c in collections]
+            
+            if collection_name in collection_names:
+                logging.info(f"Collection {collection_name} already exists")
+                return
+            
+            # Create the collection with properties
+            collection = self.client.collections.create(
+                name=collection_name,
+                description=f"Memory collection for {collection_name}",
+                vectorizer_config=weaviate.classes.config.Configure.Vectorizer.text2vec_transformers(
+                    pooling_strategy="masked_mean",
+                    vectorize_collection_name=False
+                )
             )
-        )
-        logger.info(f"Created collection '{collection_name}'")
-
-    except Exception as e:
-        logger.error(f"Error creating collection {collection_name}: {e}", exc_info=True)
-        raise
+            
+            # Add properties to the collection
+            collection.properties.create(
+                name="summary",
+                description="Summary of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=False
+            )
+            
+            collection.properties.create(
+                name="category",
+                description="Category of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="keywords",
+                description="Keywords related to the memory",
+                data_type=weaviate.classes.config.DataType.TEXT_ARRAY,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="critical_information",
+                description="Critical information in the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="importance",
+                description="Importance of the memory (1-10)",
+                data_type=weaviate.classes.config.DataType.INT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="timestamp",
+                description="Timestamp of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="location",
+                description="Location where the memory was created",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="agent",
+                description="Agent who owns the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            
+            collection.properties.create(
+                name="id",
+                description="Unique ID of the memory",
+                data_type=weaviate.classes.config.DataType.TEXT,
+                skip_vectorization=True
+            )
+            logging.info(f"Created collection {collection_name}")
+        
+        except Exception as e:
+            logging.error(f"Error creating collection {collection_name}: {e}")
+            raise
     
     def add_object(self, collection_name: str, properties: Dict[str, Any], vector_field: str = None) -> str:
         """
@@ -155,15 +187,13 @@ class WeaviateClient:
             # Get the collection
             collection = self.client.collections.get(collection_name)
             
-            # Get the object by UUID
-            # Note: object_id should be a valid UUID string or uuid.UUID object
-            obj_uuid = uuid.UUID(object_id) if isinstance(object_id, str) else object_id
-            result = collection.query.fetch_object_by_id(obj_uuid)
-
+            # Get the object
+            result = collection.query.fetch_object_by_id(object_id)
+            
             if result:
-                # Access properties directly from the object
                 return result.properties
             return None
+        
         except Exception as e:
             logging.error(f"Error getting object {object_id} from {collection_name}: {e}")
             return None
@@ -183,16 +213,16 @@ class WeaviateClient:
             # Get the collection
             collection = self.client.collections.get(collection_name)
             
-            # Delete the object by UUID
-            obj_uuid = uuid.UUID(object_id) if isinstance(object_id, str) else object_id
-            collection.data.delete_by_id(obj_uuid)
-
-            logger.info(f"Deleted object {object_id} from {collection_name}")
+            # Delete the object
+            collection.data.delete_by_id(object_id)
+            
+            logging.info(f"Deleted object {object_id} from {collection_name}")
             return True
-
+        
         except Exception as e:
-            logger.error(f"Error deleting object {object_id} from {collection_name}: {e}", exc_info=True)
+            logging.error(f"Error deleting object {object_id} from {collection_name}: {e}")
             return False
+    
     def semantic_search(self, collection_name: str, query: str, 
                         filters: Optional[Dict[str, Any]] = None, limit: int = 10) -> List[Dict[str, Any]]:
         """
@@ -214,19 +244,18 @@ class WeaviateClient:
             # Build the filter
             filter_query = self._build_filter_query(filters)
             
-            # Execute the query using collection.query
+            # Execute the query
             results = collection.query.near_text(
                 query=query,
                 limit=limit,
-                filters=filter_query,
-                return_metadata=wvc.query.MetadataQuery(distance=True) # Optional: get distance
+                filters=filter_query
             )
-
+            
             # Convert results to dictionaries
             return [obj.properties for obj in results.objects]
-
+        
         except Exception as e:
-            logger.error(f"Error performing semantic search in {collection_name}: {e}", exc_info=True)
+            logging.error(f"Error performing semantic search in {collection_name}: {e}")
             return []
     
     def keyword_search(self, collection_name: str, query: str, 
@@ -250,19 +279,18 @@ class WeaviateClient:
             # Build the filter
             filter_query = self._build_filter_query(filters)
             
-            # Execute the query using collection.query
+            # Execute the query
             results = collection.query.bm25(
                 query=query,
                 limit=limit,
-                filters=filter_query,
-                # query_properties=["summary^2", "keywords"] # Optional: specify properties and weights
+                filters=filter_query
             )
-
+            
             # Convert results to dictionaries
             return [obj.properties for obj in results.objects]
-
+        
         except Exception as e:
-            logger.error(f"Error performing keyword search in {collection_name}: {e}", exc_info=True)
+            logging.error(f"Error performing keyword search in {collection_name}: {e}")
             return []
     
     def hybrid_search(self, collection_name: str, query: str, keyword_query: str = None,
@@ -287,21 +315,19 @@ class WeaviateClient:
             # Build the filter
             filter_query = self._build_filter_query(filters)
             
-            # Execute the query using collection.query
+            # Execute the query
             results = collection.query.hybrid(
                 query=query,
-                alpha=0.5,  # Balance between vector and keyword search (0 = keyword, 1 = vector)
+                alpha=0.5,  # Balance between vector and keyword search
                 limit=limit,
-                filters=filter_query,
-                # query_properties=["summary^2", "keywords"] # Optional: specify properties for keyword part
-                return_metadata=wvc.query.MetadataQuery(score=True) # Optional: get hybrid score
+                filters=filter_query
             )
-
+            
             # Convert results to dictionaries
             return [obj.properties for obj in results.objects]
-
+        
         except Exception as e:
-            logger.error(f"Error performing hybrid search in {collection_name}: {e}", exc_info=True)
+            logging.error(f"Error performing hybrid search in {collection_name}: {e}")
             return []
     
     @staticmethod
@@ -336,11 +362,11 @@ class WeaviateClient:
             filter_conditions.append(
                 weaviate.classes.query.Filter.by_property("importance").less_than_equal(filters["max_importance"])
             )
+        
         # Combine filters with AND
         if len(filter_conditions) > 1:
-            # Use Filter.all_of for combining multiple filters
-            return wvc.query.Filter.all_of(filter_conditions)
+            return weaviate.classes.query.Filter.all_of(*filter_conditions)
         elif len(filter_conditions) == 1:
             return filter_conditions[0]
-
+        
         return None
