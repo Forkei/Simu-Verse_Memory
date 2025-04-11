@@ -58,21 +58,21 @@ class SubconsciousAgent:
         # The original prompt text is now moved to the template file
         # prompt = f"""You are the subconscious mind of {self.agent_name}. Your task is to create a memory from recent conversation.
         # 
-Analyze the conversation and create a memory with the following components:
-1. Summary: A concise description of what happened
-2. Category: Choose from: {categories}
-3. Keywords: 3-5 relevant keywords for future retrieval
-4. Critical Information: Details that will help make good decisions when this memory is recalled
-5. Importance: Rate from 1-10 how important this memory is (1 = trivial, 10 = life-changing)
-
-Respond in XML format like this:
-<memory>
-  <summary>Brief summary of what happened</summary>
-  <category>one_of_the_categories</category>
-  <keywords>keyword1, keyword2, keyword3</keywords>
-  <critical_information>Important details that should influence future decisions</critical_information>
-  <importance>7</importance>
-</memory>
+# Analyze the conversation and create a memory with the following components:
+# 1. Summary: A concise description of what happened
+# 2. Category: Choose from: {categories}
+# 3. Keywords: 3-5 relevant keywords for future retrieval
+# 4. Critical Information: Details that will help make good decisions when this memory is recalled
+# 5. Importance: Rate from 1-10 how important this memory is (1 = trivial, 10 = life-changing)
+# 
+# Respond in XML format like this:
+# <memory>
+#   <summary>Brief summary of what happened</summary>
+#   <category>one_of_the_categories</category>
+#   <keywords>keyword1, keyword2, keyword3</keywords>
+#   <critical_information>Important details that should influence future decisions</critical_information>
+#   <importance>7</importance>
+# </memory>
         return prompt
 
     def _get_memory_retrieval_prompt(self) -> str:
@@ -87,27 +87,27 @@ Respond in XML format like this:
         # prompt = f"""You are the subconscious mind of {self.agent_name}. Your task is to create queries to retrieve relevant memories.
         #
         # Based on the recent conversation and current context, create up to 3 memory queries that will help retrieve the most relevant memories.
-
-For each query, specify:
-1. Search type: "keyword", "semantic", or "hybrid"
-2. Keywords: If using keyword or hybrid search
-3. Query text: For semantic or hybrid search
-4. Filters: Any filters to apply (category, min/max importance, time range)
-
-Respond in XML format like this:
-<memory_queries>
-  <query>
-    <search_type>hybrid</search_type>
-    <keywords>meeting, project, deadline</keywords>
-    <query_text>Important information about the project deadline</query_text>
-    <filters>
-      <category>conversation</category>
-      <min_importance>5</min_importance>
-    </filters>
-  </query>
-  <!-- Additional queries as needed, up to 3 total -->
-</memory_queries>
-"""
+# 
+# For each query, specify:
+# 1. Search type: "keyword", "semantic", or "hybrid"
+# 2. Keywords: If using keyword or hybrid search
+# 3. Query text: For semantic or hybrid search
+# 4. Filters: Any filters to apply (category, min/max importance, time range)
+# 
+# Respond in XML format like this:
+# <memory_queries>
+#   <query>
+#     <search_type>hybrid</search_type>
+#     <keywords>meeting, project, deadline</keywords>
+#     <query_text>Important information about the project deadline</query_text>
+#     <filters>
+#       <category>conversation</category>
+#       <min_importance>5</min_importance>
+#     </filters>
+#   </query>
+#   <!-- Additional queries as needed, up to 3 total -->
+# </memory_queries>
+# """
         return prompt
     
     def create_memory_from_conversation(self, conversation: List[Dict[str, str]], location: str) -> Dict[str, Any]:
