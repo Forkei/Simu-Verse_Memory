@@ -262,7 +262,7 @@ def generate_elements(positions):
     return elements
 
 
-def move_agent(agent_name: str, current_positions: dict, target_type: Optional[str] = None, target_name: Optional[str] = None):
+def move_agent(agent_name: str, current_positions: dict, landmarks: dict, target_type: Optional[str] = None, target_name: Optional[str] = None):
     """
     Move an agent towards a target or randomly if no specific target.
     Move an agent towards a target or randomly if no specific target.
@@ -540,8 +540,8 @@ async def simulation_step_async():
                  target_type = params.get("target_type")
                  target_name_param = params.get("target_name") # Renamed to avoid conflict
 
-                 # Move the agent using the parameters
-                 new_position = move_agent(target_name, agent_positions, target_type, target_name_param)
+                 # Move the agent using the parameters, passing the global landmarks
+                 new_position = move_agent(target_name, agent_positions, landmarks, target_type, target_name_param)
                  agent_positions[target_name] = new_position
                  # Reset cooldown as the agent chose to move
                  agent_movement_cooldown[target_name] = 0
