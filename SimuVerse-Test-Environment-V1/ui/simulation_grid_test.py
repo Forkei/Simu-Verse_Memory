@@ -632,6 +632,47 @@ def _handle_agent_movement(edges, previous_connections):
     # Probabilistic movement logic is removed. Agents move via the 'movement' tool.
 
 
+def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, radius: float, scan_filter: str) -> str:
+    """
+    Performs a scan from the scanner's position to find nearby agents and landmarks.
+    """
+    scanner_pos = positions.get(scanner_name)
+    if not scanner_pos:
+        return "Error: Scanner position unknown."
+
+    nearby_agents = []
+    nearby_landmarks = []
+    radius_sq = radius * radius
+
+    # Scan for agents
+    if scan_filter in ["agents", "all"]:
+        for name, pos in positions.items():
+            if name == scanner_name:
+                continue
+            dx = pos["x"] - scanner_pos["x"]
+            dy = pos["y"] - scanner_pos["y"]
+            dist_sq = dx*dx + dy*dy
+            if dist_sq <= radius_sq:
+                distance = math.sqrt(dist_sq)
+                nearby_agents.append(f"{name} (dist: {distance:.1f})")
+
+    # Scan for landmarks
+    if scan_filter in ["landmarks", "all"]:
+        for name, pos in landmarks_dict.items():
+            dx = pos["x"] - scanner_pos["x"]
+            dy = pos["y"] - scanner_pos["y"]
+            dist_sq = dx*dx + dy*dy
+            if dist_sq <= radius_sq:
+                distance = math.sqrt(dist_sq)
+                nearby_landmarks.append(f"{name} (dist: {distance:.1f})")
+
+    # Format results
+    result_str = "Nearby Agents: " + (", ".join(nearby_agents) if nearby_agents else "None") + \
+                 ". Nearby Landmarks: " + (", ".join(nearby_landmarks) if nearby_landmarks else "None") + "."
+                 
+    return result_str
+
+
 # Remove the old async helper function as logic is now in AgentManager
 # async def _process_agent_response_async(agent, message, source, target, is_new_connection):
 #     ...

@@ -53,8 +53,8 @@ This document outlines the current state of the SimuVerse codebase, identifies a
 *   [ ] **Address Async Issues:** Implement a stable approach for handling potentially long-running LLM calls within the Dash UI (synchronous with loading states, or proper async integration).
 
 ### IV. Feature Implementation & Improvements:
-*   [x] **Implement Tool Usage:** Parse the `<tool_use>` section of agent responses and execute the corresponding actions. (Movement tool execution refined in `simulation_step_async` to use agent-specified parameters, though actual targeting is placeholder).
-*   [ ] **Implement Environment Interaction:** Flesh out tools like `scan` and `interact` by adding a simple environment state representation. Movement tool needs actual targeting logic based on environment state (landmarks, items, other agents).
+*   [x] **Implement Tool Usage:** Parse the `<tool_use>` section of agent responses and execute the corresponding actions. (Movement tool execution refined, Scan tool execution added via UI).
+*   [ ] **Implement Environment Interaction:** Flesh out tools like `interact` by adding a simple environment state representation. (Partially done: Targeted movement and Scan implemented).
 *   [ ] **Enhance UI:** Implement features from `IMPROVEMENTS.md` (e.g., better conversation view, agent detail panels, relationship visualization). (Chat history parsing improved, movement status updated, chat ordering/timestamps implemented. Needs agent detail panels).
 *   [ ] **Implement Personality:** Integrate the personality system fully.
 *   [ ] **Logging:** Implement centralized logging using `python_backend/src/utils/logging.py` (once implemented).
