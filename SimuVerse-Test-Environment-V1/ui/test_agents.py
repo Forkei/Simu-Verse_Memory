@@ -3,7 +3,13 @@ import os
 from time import sleep
 from dotenv import load_dotenv
 import sys
-import json # Add this import
+import json
+import logging
+
+# Setup logging
+from utils.logging import setup_logging # Assuming utils is now accessible
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # Adjust path to import from python_backend
 backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'python_backend', 'src'))

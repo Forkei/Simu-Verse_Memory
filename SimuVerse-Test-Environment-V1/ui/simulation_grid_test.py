@@ -16,8 +16,15 @@ import sys
 import os
 import json
 import asyncio
-import datetime # Add this import
-from typing import Optional # Add this import
+import datetime
+from typing import Optional
+import logging
+
+# Setup logging
+from utils.logging import setup_logging # Assuming utils is now accessible
+setup_logging()
+logger = logging.getLogger(__name__)
+
 
 # Adjust path to import from python_backend
 backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'python_backend', 'src'))
@@ -440,7 +447,8 @@ async def simulation_step_async():
 
         # Check if this is a new connection
         is_new_connection = previous_connections.get(target_name) != source_name
-        
+        logger.debug(f"Processing edge: {source_name} -> {target_name} (New connection: {is_new_connection})")
+
         # Update conversation round counter
         conversation_pair = (source_name, target_name)
         if is_new_connection:

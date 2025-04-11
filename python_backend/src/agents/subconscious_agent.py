@@ -183,12 +183,17 @@ class SubconsciousAgent:
         
         # Store in Weaviate
         self.weaviate_client.add_object(
-            collection_name=self.collection_name,
-            properties=memory
-            # vector_field="summary" # No longer needed with Weaviate v4 client
+            collection_name=collection_name,
+            properties=properties,
+            uuid=obj_id # Pass the generated or existing UUID
+            # vector=... # Optionally provide pre-computed vector
         )
-        logger.info(f"Memory created and stored for {self.agent_name}. ID: {memory['id']}")
-        return memory
+
+        # The insert method now returns the UUID directly
+        inserted_uuid = collection.data.insert(properties, uuid=obj_id)
+
+        logger.info(f"Added object to {collection_name} with ID {inserted_uuid}")
+        return str(inserted_uuid) # Return as string
 
     def _parse_memory_xml(self, xml_response: str) -> Optional[Dict[str, Any]]:
         """

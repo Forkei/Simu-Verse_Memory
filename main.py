@@ -145,13 +145,15 @@ def main():
                         print("  Parameters:")
                         for param, value in response["tool_use"]["parameters"].items():
                             print(f"    {param}: {value}")
-                
+                else:
+                    print("  (No tool used)")
+
             except Exception as e:
-                logging.error(f"Error processing agent turn: {e}")
+                logger.error(f"Error processing agent turn for {current_agent_name}: {e}", exc_info=True)
                 print(f"Error: {e}")
-    
+
     except Exception as e:
-        logging.error(f"Fatal error: {e}")
+        logger.critical(f"Fatal error during initialization or main loop: {e}", exc_info=True)
         print(f"Fatal error: {e}")
         return 1
         
