@@ -1243,8 +1243,16 @@ app.layout = html.Div([
                         for name, agent in backend_agent_manager.agents.items()
                     ])
                 ]),
-                
-                # Status panel
+
+                # Memory Display Panel
+                dbc.Card([
+                    dbc.CardHeader(html.H4("Retrieved Memories", className="text-center")),
+                    dbc.CardBody(id="memory-display-panel", children=[
+                        html.P("Click on an agent node to see recently retrieved memories.", className="text-muted small")
+                    ], style={"maxHeight": "300px", "overflowY": "auto"})
+                ], className="mt-4 shadow-sm"),
+
+                # Status panel (Moved down)
                 dbc.Card([
                     dbc.CardHeader(html.H4("Agent Status", className="text-center")),
                     dbc.CardBody([

@@ -229,6 +229,10 @@ class AgentManager:
 
         # Process the response to extract reflection and tool use
         processed_response = self._process_agent_response(response)
+
+        # Add retrieved memories to the response for potential UI display
+        processed_response["retrieved_memories"] = memories
+
         # Create a new memory from this interaction
         if input_message or len(agent.conversation_history) > 0:
             logger.debug(f"Creating memory for {agent_name} based on recent interaction.")
