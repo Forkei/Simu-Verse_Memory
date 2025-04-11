@@ -13,6 +13,7 @@ import sys
 import os
 import json
 import asyncio
+from typing import Optional # Add this import
 
 # Adjust path to import from python_backend
 backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'python_backend', 'src'))
