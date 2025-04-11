@@ -409,6 +409,7 @@ async def simulation_step_async():
     """
     Asynchronous version of simulation_step that runs agent responses concurrently
     """
+    global landmarks # Explicitly declare usage of global variable
     import random
     import asyncio
     
