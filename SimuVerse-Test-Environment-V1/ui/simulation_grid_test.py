@@ -2,7 +2,10 @@ import streamlit as st
 # import os
 import math
 import dash
-from dash import html, dcc, Input, Output, State
+from dash import html, dcc, Input, Output, State, callback_context, no_update
+import dash.long_callback # Import long_callback
+from dash.long_callback import DiskcacheLongCallbackManager # Import manager
+import diskcache # Import diskcache
 import dash_cytoscape as cyto
 from dash import dash_table
 from dash import ALL
@@ -586,7 +589,15 @@ def _handle_agent_movement(edges, previous_connections):
 # -------------------------
 # Dash App Setup
 # -------------------------
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+# Setup DiskCacheManager for background callbacks
+cache = diskcache.Cache("./callback_cache")
+long_callback_manager = DiskcacheLongCallbackManager(cache)
+
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    long_callback_manager=long_callback_manager, # Register the manager
+)
 server = app.server
 
 # Custom CSS for responsive design and white/orange theme
@@ -824,9 +835,11 @@ app.index_string = '''
 '''
 
 app.layout = html.Div([
-    # Hidden components for UI updates
+    # Hidden components for UI updates and state management
+    dcc.Store(id='cytoscape-elements-store', data=generate_elements(agent_positions)), # Store graph elements
+    dcc.Store(id='conversation-logs-store', data=conversation_logs), # Store conversation logs
     dcc.Interval(id='refresh-interval', interval=250, n_intervals=0),  # Refresh UI every 250ms to update thinking indicators
-    
+
     # App Header with branding
     html.Div([
         html.H1("SimuVerse", className="mb-0"),
@@ -845,7 +858,7 @@ app.layout = html.Div([
                     dbc.CardBody([
                         cyto.Cytoscape(
                             id='cytoscape',
-                            elements=generate_elements(agent_positions),
+                            # elements=generate_elements(agent_positions), # Initial elements from Store
                             style={'width': '100%', 'height': '550px'},
                             layout={'name': 'preset'},
                             stylesheet=[
@@ -947,11 +960,13 @@ app.layout = html.Div([
                         html.Div(id="chat-title-details", className="text-muted small")
                     ]),
                     dbc.CardBody([
-                        html.Div(id="chat-history", className="chat-messages")
+                        html.Div(id="chat-history", className="chat-messages"),
+                        # Add a loading indicator for the chat
+                        dcc.Loading(id="loading-chat", type="default", children=html.Div(id="loading-chat-output"), className="mt-2")
                     ], className="chat-container")
                 ], className="mt-4 shadow mb-4")
             ], md=8),
-            
+
             # Right column - Controls and logs
             dbc.Col([
                 # Control panel
@@ -965,9 +980,12 @@ app.layout = html.Div([
                                 width=6
                             ),
                             dbc.Col(
-                                dbc.Button("Async Step", id="async-step-btn", n_clicks=0, 
-                                          className="simulation-btn w-100", 
-                                          color="secondary"),
+                                html.Div([ # Wrap button and loading indicator
+                                    dbc.Button("Async Step", id="async-step-btn", n_clicks=0,
+                                              className="simulation-btn w-100",
+                                              color="secondary"),
+                                    dcc.Loading(id="loading-sim-step", type="default", children=html.Div(id="loading-sim-step-output"))
+                                ]),
                                 width=6
                             )
                         ], className="mb-3"),
@@ -1076,68 +1094,103 @@ app.layout = html.Div([
 # Instead we'll rely on CSS animations for the thinking state
 
 # -------------------------
-# Callback: Update Graph When Nodes are Dragged or Step Simulation is Clicked
+# Callback: Update Graph Display from Store and Handle Dragging
 # -------------------------
 @app.callback(
-    [Output('cytoscape', 'elements'),
-     *[Output(f"thinking-indicator-{name}", "style") for name in agent_lookup.keys()]],
-    [Input('cytoscape', 'elements'),
-     Input('step-btn', 'n_clicks'),
-     Input('async-step-btn', 'n_clicks'),
-     Input('cytoscape', 'tapNodeData'),
-     Input("refresh-interval", "n_intervals")], # Add interval to refresh thinking state in graph
-    [State('cytoscape', 'elements')]
+    Output('cytoscape', 'elements'),
+    Input('cytoscape-elements-store', 'data'),
+    Input('cytoscape', 'elements'), # Listen for user dragging elements
+    State('cytoscape', 'elements'), # Get current elements state
+    prevent_initial_call=True
 )
-def update_graph(current_elements, n_clicks, async_n_clicks, node_data, n_intervals, stored_elements):
-    ctx = dash.callback_context
-    triggered = ctx.triggered[0]['prop_id'] if ctx.triggered else ""
+def update_graph_display(stored_graph_elements, user_dragged_elements, current_graph_state):
+    triggered_id = callback_context.triggered_id
 
-    # If nodes have been dragged, update agent_positions.
-    # (Dash Cytoscape passes the updated element positions in the elements property.)
-    if stored_elements:
-        for ele in stored_elements:
+    # If the trigger was the store updating (after sim step), use the stored data
+    if triggered_id == 'cytoscape-elements-store':
+        return stored_graph_elements
+
+    # If the trigger was user dragging elements, update positions in the global state
+    # This is a simplification; ideally, this interaction would also go through a callback/store
+    if triggered_id == 'cytoscape' and user_dragged_elements:
+        # Check if positions actually changed to avoid loops
+        positions_changed = False
+        for ele in user_dragged_elements:
             if 'position' in ele and 'id' in ele['data']:
-                agent_positions[ele['data']['id']] = ele['position']
+                node_id = ele['data']['id']
+                if node_id in agent_positions:
+                    current_pos = agent_positions[node_id]
+                    new_pos = ele['position']
+                    # Compare positions with a small tolerance
+                    if abs(current_pos['x'] - new_pos['x']) > 0.1 or abs(current_pos['y'] - new_pos['y']) > 0.1:
+                        agent_positions[node_id] = new_pos
+                        positions_changed = True
 
-    # If step simulation button was clicked, run simulation step.
-    if "step-btn" in triggered:
-        # Run the synchronous simulation step
-        simulation_step()
-    
-    # If async step button was clicked, run async simulation step
-    if "async-step-btn" in triggered:
-        # For Dash compatibility with async, we'll queue this function
-        # to run in a separate thread/process, since Dash callbacks must be synchronous
-        import threading
-        import asyncio
-        
-        # Create a thread that runs an event loop to execute the async function
-        def run_async_step():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            # Run the async simulation step
-            loop.run_until_complete(simulation_step_async())
-            loop.close()
-        
-        # Start the thread 
-        thread = threading.Thread(target=run_async_step)
-        thread.daemon = True
-        thread.start()
-
-    # Get current agent states for thinking indicators (using backend agents)
-    thinking_styles = []
-    for name in backend_agent_manager.agents.keys():
-        agent = backend_agent_manager.agents[name]
-        # Use the 'thinking' attribute set during simulation_step_async
-        is_thinking = getattr(agent, 'thinking', False)
-        if is_thinking:
-            thinking_styles.append({"display": "inline-block"})
+        # If positions changed due to drag, regenerate elements and update store
+        # This part might need refinement to avoid callback loops or use a different state management
+        if positions_changed:
+             # Return the user-dragged elements directly to reflect the drag immediately
+             # The global agent_positions is updated, so the next sim step will use it.
+             return user_dragged_elements
         else:
-            thinking_styles.append({"display": "none"})
+             # No change detected, prevent update
+             return no_update
 
-    # Return updated elements and thinking indicator styles
-    # Note: generate_elements needs to be updated to read state from backend agents
-    return [generate_elements(agent_positions), *thinking_styles]
+    # Default: return stored elements if no specific action triggered
+    return stored_graph_elements
+
+
+# -------------------------
+# Background Callback: Run Simulation Step Asynchronously
+# -------------------------
+@dash.long_callback(
+    output=[
+        Output('cytoscape-elements-store', 'data'),
+        Output('conversation-logs-store', 'data'),
+        Output("loading-sim-step-output", "children"), # To clear loading state
+        Output("loading-chat-output", "children") # To clear loading state
+    ],
+    inputs=Input('async-step-btn', 'n_clicks'),
+    # state=[State('cytoscape-elements-store', 'data')], # Get current elements from store if needed
+    running=[
+        (Output("async-step-btn", "disabled"), True, False),
+        (Output("loading-sim-step", "style"), {"visibility": "visible"}, {"visibility": "hidden"}),
+        (Output("loading-chat", "style"), {"visibility": "visible"}, {"visibility": "hidden"}),
+    ],
+    prevent_initial_call=True,
+)
+def run_simulation_background(n_clicks):
+    if n_clicks is None or n_clicks == 0:
+        raise dash.exceptions.PreventUpdate
+
+    # Run the async simulation step
+    # Note: simulation_step_async modifies global state (agent_positions, conversation_logs)
+    # This is generally discouraged in Dash, but we'll keep it for now.
+    # A better approach would be to pass state in and return updated state.
+    asyncio.run(simulation_step_async())
+
+    # Generate new elements based on potentially updated agent_positions
+    new_elements = generate_elements(agent_positions)
+
+    # Return the updated elements and logs to the stores
+    # Make copies to ensure Dash detects changes if the objects are mutated elsewhere
+    return new_elements, conversation_logs.copy(), None, None
+
+
+# -------------------------
+# Callback: Synchronous Simulation Step (Kept for comparison/debugging)
+# -------------------------
+@app.callback(
+    Output('cytoscape-elements-store', 'data', allow_duplicate=True),
+    Input('step-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def run_simulation_sync(n_clicks):
+    if n_clicks is None or n_clicks == 0:
+        raise dash.exceptions.PreventUpdate
+
+    simulation_step() # This modifies global agent_positions
+    return generate_elements(agent_positions) # Return new elements based on updated positions
 
 
 # We're replacing the old conversation log with a modern chat interface below
@@ -1189,11 +1242,12 @@ def update_chat_title(edgeData):
 # -------------------------
 @app.callback(
     Output("chat-history", "children"),
-    [Input('cytoscape', 'tapEdgeData'),
-     Input('refresh-interval', 'n_intervals')]
+    Input('cytoscape', 'tapEdgeData'),
+    Input('conversation-logs-store', 'data'), # Read logs from the store
+    prevent_initial_call=True # Prevent initial call before logs are populated
 )
-def display_chat_history(edgeData, n_intervals):
-    if edgeData is None:
+def display_chat_history(edgeData, stored_logs):
+    if edgeData is None or stored_logs is None:
         return html.Div([
             html.Div("Click on a connection between agents to view their conversation.",
                     className="chat-notification")
@@ -1203,16 +1257,14 @@ def display_chat_history(edgeData, n_intervals):
     source_name = edgeData.get("source")
     target_name = edgeData.get("target")
 
-    # Combine logs from both agents involved in the selected edge
-    # Note: conversation_logs now stores dicts: {"sender": name, "message": text, "type": "agent|system"}
+    # Combine logs from both agents involved in the selected edge using the stored_logs
     combined_logs = []
-    if source_name in conversation_logs:
-        combined_logs.extend(conversation_logs[source_name])
-    if target_name in conversation_logs:
-        combined_logs.extend(conversation_logs[target_name])
+    if source_name in stored_logs:
+        combined_logs.extend(stored_logs[source_name])
+    if target_name in stored_logs:
+        combined_logs.extend(stored_logs[target_name])
 
-    # We don't have timestamps yet, so just display in the order they were added.
-    # A better approach would be to add timestamps in simulation_step_async and sort here.
+    # TODO: Add timestamps in simulation_step_async and sort combined_logs here for correct order.
     # For now, this will show all messages from both agents, potentially out of order if they spoke simultaneously.
 
     chat_messages = []
@@ -1306,14 +1358,17 @@ def update_thinking_indicators(n_intervals):
 # Movement statistics update
 @app.callback(
     Output("movement-stats", "children"),
-    Input("step-btn", "n_clicks"),
-    Input("cytoscape", "elements")
+    Input('cytoscape-elements-store', 'data'), # Read elements from store
+    Input('refresh-interval', 'n_intervals') # Update periodically
 )
-def update_movement_stats(n_clicks, elements):
+def update_movement_stats(elements_data, n_intervals):
     """Update the movement statistics display"""
-    # Get the current edges
-    edges = [ele for ele in elements if "source" in ele.get("data", {})]
-    
+    if elements_data is None:
+        return "Waiting for data..."
+
+    # Get the current edges from the stored data
+    edges = [ele for ele in elements_data if "source" in ele.get("data", {})]
+
     # Format connection information
     connections = []
     for edge in edges:
