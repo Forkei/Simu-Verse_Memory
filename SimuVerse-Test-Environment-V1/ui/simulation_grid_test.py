@@ -357,14 +357,10 @@ def simulation_step():
             # Notify agent of new connection
             notification = f"[SYSTEM: You are now connected to {source}. Please acknowledge with a brief greeting.]"
             
-            # Update agent state
-            target_agent.set_state(Status.THINKING)
-            
             # Get response from the agent using the integrated framework
             notification_response = target_agent.generate_response(notification)
             
-            # Update state and logs
-            target_agent.set_state(Status.TALKING)
+            # Update logs
             conversation_logs[target].append(notification_response)
             updates.append((source, target, notification_response))
         else:
@@ -375,14 +371,10 @@ def simulation_step():
             else:
                 last_msg = "Hello"
             
-            # Update agent state
-            target_agent.set_state(Status.THINKING)
-            
             # Get response from the agent
             response = target_agent.generate_response(last_msg)
             
-            # Update state and logs
-            target_agent.set_state(Status.TALKING)
+            # Update logs
             conversation_logs[target].append(response)
             updates.append((source, target, response))
     
