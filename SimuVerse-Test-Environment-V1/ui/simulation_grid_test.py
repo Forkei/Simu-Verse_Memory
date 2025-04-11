@@ -486,7 +486,8 @@ async def simulation_step_async():
             conversation_logs[target_name].append({
                 "sender": target_name, # Identify sender for chat display
                 "message": display_response,
-                "type": "agent" # Mark as agent message
+                "type": "agent", # Mark as agent message
+                "timestamp": datetime.datetime.now().isoformat() # Add timestamp
             })
             updates.append((source_name, target_name, display_response)) # Keep updates for potential other uses
 
@@ -496,7 +497,8 @@ async def simulation_step_async():
             conversation_logs[target_name].append({
                 "sender": "System",
                 "message": error_message,
-                "type": "system"
+                "type": "system",
+                "timestamp": datetime.datetime.now().isoformat() # Add timestamp
             })
             updates.append((source_name, target_name, error_message))
             # Reset thinking state in case of error too
@@ -528,7 +530,8 @@ async def simulation_step_async():
                  conversation_logs[target_name].append({
                      "sender": "System", # Keep sender as System for movement logs
                      "message": move_message,
-                     "type": "system"
+                     "type": "system",
+                     "timestamp": datetime.datetime.now().isoformat() # Add timestamp
                  })
                  # updates.append((source_name, target_name, "[SYSTEM: Moved location]")) # Redundant if logged
 
@@ -1264,8 +1267,8 @@ def display_chat_history(edgeData, stored_logs):
     if target_name in stored_logs:
         combined_logs.extend(stored_logs[target_name])
 
-    # TODO: Add timestamps in simulation_step_async and sort combined_logs here for correct order.
-    # For now, this will show all messages from both agents, potentially out of order if they spoke simultaneously.
+    # Sort combined logs by timestamp
+    combined_logs.sort(key=lambda x: x.get("timestamp", ""))
 
     chat_messages = []
 
