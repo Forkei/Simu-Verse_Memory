@@ -32,7 +32,7 @@ This document outlines the current state of the SimuVerse codebase, identifies a
 *   [ ] **Remove/Update Old Visualization:** Remove the unused `matplotlib`-based `visualize.py` or update it if it serves a different purpose. Focus enhancements on the Dash/Cytoscape UI.
 *   [ ] **Clarify Project Structure:** Define how `python_backend` and the test environment UI are meant to interact. Adjust imports accordingly (e.g., make `python_backend` an installable package or adjust `sys.path`).
 *   [ ] **Refactor Async:** Either remove the `simulation_step_async` and focus on synchronous simulation steps or implement proper async handling within the Dash framework.
-*   [ ] **Centralize Configuration:** Move API keys, model names, prompts, and other configurations out of scripts and into dedicated config files (`config.yaml`?) or rely solely on `.env` loaded centrally.
+*   [ ] **Centralize Configuration:** Move API keys, model names, prompts, and other configurations out of scripts and into dedicated config files (`config.yaml`?) or rely solely on `.env` loaded centrally. (Partially done: API keys and default models use .env).
 
 ### II. Memory System Integration:
 *   [x] **Instantiate Managers:** In `simulation_grid_test.py`, instantiate `LLMManager` and `WeaviateClient` (or `MockWeaviateClient`).

@@ -13,15 +13,15 @@ class LLMManager:
         self.ollama_client = ollama.Client(host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
         self.anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
-        # Default configurations
-        self.current_provider = "ollama"
+
+        # Default configurations - Read from environment or use fallbacks
+        self.current_provider = "ollama" # Default provider
         self.current_models = {
-            "ollama": os.getenv("MODEL_NAME", "qwen2.5:14b"),
-            "anthropic": "claude-3-7-sonnet-latest",
-            "openai": "gpt-4-turbo-preview"
+            "ollama": os.getenv("DEFAULT_OLLAMA_MODEL", "qwen2.5:14b"),
+            "anthropic": os.getenv("DEFAULT_ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
+            "openai": os.getenv("DEFAULT_OPENAI_MODEL", "gpt-4o-mini")
         }
-        
+
         # Conversation histories for each provider
         self.conversation_histories: Dict[str, List[Dict[str, str]]] = {
             "ollama": [],
