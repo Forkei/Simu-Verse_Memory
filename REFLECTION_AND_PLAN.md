@@ -44,7 +44,7 @@ This document outlines the current state of the SimuVerse codebase, identifies a
     *   Pass necessary context (like the message from the other agent) to `process_agent_turn`.
 *   [x] **Memory Context in Prompt:** Ensure the `process_agent_turn` correctly retrieves memories via the `SubconsciousAgent` and injects the `MEMORY_CONTEXT` into the agent's system prompt before calling the LLM. (Done within `AgentManager.process_agent_turn`)
 *   [x] **Memory Creation:** Ensure `process_agent_turn` triggers memory creation in the `SubconsciousAgent` after a response is generated. (Done within `AgentManager.process_agent_turn`)
-*   [ ] **UI Updates:** Add UI elements (optional) to display retrieved memories or agent reflections derived from memory. (Partially done: thinking indicator implemented, chat history parsing improved, movement status check improved, chat ordering/timestamps implemented. Needs further refinement for potentially displaying memory info and agent detail panels).
+*   [ ] **UI Updates:** Add UI elements (optional) to display retrieved memories or agent reflections derived from memory. (Partially done: thinking indicator, chat history parsing, movement status, chat ordering/timestamps. Needs further refinement for potentially displaying memory info and agent detail panels).
 *   [x] **Configuration:** Ensure Weaviate connection details are configurable (use `.env` or a config file). (Handled via `dotenv`)
 *   [ ] **Testing:** Add specific tests for the memory creation/retrieval cycle within the simulation.
 

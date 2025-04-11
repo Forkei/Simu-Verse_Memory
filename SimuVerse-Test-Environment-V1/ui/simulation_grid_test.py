@@ -265,48 +265,62 @@ def generate_elements(positions):
 def move_agent(agent_name: str, current_positions: dict, target_type: Optional[str] = None, target_name: Optional[str] = None):
     """
     Move an agent towards a target or randomly if no specific target.
-    Placeholder: Currently logs target but still moves randomly.
+    Move an agent towards a target or randomly if no specific target.
     """
     import random
     import logging # Add logging
+    import math
     from typing import Optional # Add Optional for type hinting
-
-    # Log the intended move
-    if target_type and target_name:
-        logging.info(f"Agent '{agent_name}' intends to move towards {target_type} '{target_name}'. (Executing random move for now)")
-    else:
-        logging.info(f"Agent '{agent_name}' moving randomly (no specific target).")
-
-
-    # --- Placeholder: Random Movement ---
-    # TODO: Implement targeted movement based on target_type and target_name
-    # e.g., if target_type == 'agent', move towards agent_positions[target_name]
-    # e.g., if target_type == 'landmark', move towards predefined landmark coordinates
 
     # Current position
     current_x = current_positions[agent_name]["x"]
     current_y = current_positions[agent_name]["y"]
     
-    # Random direction (0 = up, 1 = right, 2 = down, 3 = left, 4-7 = diagonals)
-    direction = random.randint(0, 7)
-    
-    # Calculate new position based on direction
-    if direction == 0:  # Up
-        new_x, new_y = current_x, current_y - movement_distance
-    elif direction == 1:  # Right
-        new_x, new_y = current_x + movement_distance, current_y
-    elif direction == 2:  # Down
-        new_x, new_y = current_x, current_y + movement_distance
-    elif direction == 3:  # Left
-        new_x, new_y = current_x - movement_distance, current_y
-    elif direction == 4:  # Up-Right
-        new_x, new_y = current_x + movement_distance * 0.7, current_y - movement_distance * 0.7
-    elif direction == 5:  # Down-Right
-        new_x, new_y = current_x + movement_distance * 0.7, current_y + movement_distance * 0.7
-    elif direction == 6:  # Down-Left
-        new_x, new_y = current_x - movement_distance * 0.7, current_y + movement_distance * 0.7
-    else:  # Up-Left
-        new_x, new_y = current_x - movement_distance * 0.7, current_y - movement_distance * 0.7
+    target_x, target_y = None, None
+
+    # Determine target coordinates
+    if target_type == "agent" and target_name in current_positions:
+        target_x = current_positions[target_name]["x"]
+        target_y = current_positions[target_name]["y"]
+        logging.info(f"Agent '{agent_name}' moving towards agent '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
+    elif target_type == "landmark" and target_name in landmarks:
+        target_x = landmarks[target_name]["x"]
+        target_y = landmarks[target_name]["y"]
+        logging.info(f"Agent '{agent_name}' moving towards landmark '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
+    # Add 'item' type later if needed
+    # elif target_type == "item" and target_name in items:
+    #     target_x = items[target_name]["x"]
+    #     target_y = items[target_name]["y"]
+    #     logging.info(f"Agent '{agent_name}' moving towards item '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
+    else:
+        logging.info(f"Agent '{agent_name}' moving randomly (target '{target_name}' of type '{target_type}' not found or invalid).")
+        # Fallback to random movement if target is invalid/not found
+        target_x, target_y = None, None
+
+    # Calculate movement vector
+    if target_x is not None and target_y is not None:
+        dx = target_x - current_x
+        dy = target_y - current_y
+        distance_to_target = math.sqrt(dx*dx + dy*dy)
+
+        # If close enough, stop or move randomly; otherwise, move towards target
+        if distance_to_target < movement_distance / 2:
+             # Already close, move randomly slightly
+             angle = random.uniform(0, 2 * math.pi)
+             move_dist = movement_distance / 4 # Smaller random step
+             new_x = current_x + move_dist * math.cos(angle)
+             new_y = current_y + move_dist * math.sin(angle)
+             logging.info(f"Agent '{agent_name}' close to target, making small random move.")
+        else:
+            # Move towards target
+            scale = movement_distance / distance_to_target
+            new_x = current_x + dx * scale
+            new_y = current_y + dy * scale
+    else:
+        # Random movement if no valid target
+        angle = random.uniform(0, 2 * math.pi)
+        new_x = current_x + movement_distance * math.cos(angle)
+        new_y = current_y + movement_distance * math.sin(angle)
     
     # Ensure the new position is within grid bounds
     new_x = max(grid_bounds["min_x"], min(grid_bounds["max_x"], new_x))
@@ -451,6 +465,15 @@ async def simulation_step_async():
             else:
                 input_message = "Hello" # Initial message if source hasn't spoken
 
+        # Check for stored scan results from the previous turn
+        scan_prefix = ""
+        if target_agent.last_scan_result:
+            scan_prefix = f"[Scan Results: {target_agent.last_scan_result}]\n\n"
+            target_agent.last_scan_result = None # Clear after use
+
+        # Prepend scan results to the input message if available
+        full_input_message = scan_prefix + input_message
+
         # Process the target agent's turn using the backend manager
         processed_response = None # Initialize in case of error
         try:
@@ -510,8 +533,9 @@ async def simulation_step_async():
              # --- Tool Execution ---
              # Ensure processed_response is not None before accessing tool_use
              tool_use = processed_response.get("tool_use") if processed_response else None
+
+             # --- Movement Tool ---
              if tool_use and tool_use.get("name") == "movement":
-                 # Extract movement parameters
                  params = tool_use.get("parameters", {})
                  target_type = params.get("target_type")
                  target_name_param = params.get("target_name") # Renamed to avoid conflict
@@ -535,6 +559,29 @@ async def simulation_step_async():
                      "timestamp": datetime.datetime.now().isoformat() # Add timestamp
                  })
                  # updates.append((source_name, target_name, "[SYSTEM: Moved location]")) # Redundant if logged
+
+             # --- Scan Tool ---
+             elif tool_use and tool_use.get("name") == "scan":
+                 params = tool_use.get("parameters", {})
+                 radius = params.get("radius", 100) # Default radius if not specified
+                 scan_filter = params.get("filter", "all")
+                 
+                 # Perform scan logic here (using UI state)
+                 scan_results = _perform_scan(target_name, agent_positions, landmarks, radius, scan_filter)
+                 
+                 # Store results on the agent object for the *next* turn's input
+                 target_agent.last_scan_result = scan_results
+                 
+                 # Log the scan action
+                 scan_message = f"[Scan executed: radius={radius}, filter={scan_filter}. Results available next turn.]"
+                 conversation_logs[target_name].append({
+                     "sender": "System",
+                     "message": scan_message,
+                     "type": "system",
+                     "timestamp": datetime.datetime.now().isoformat()
+                 })
+                 # Optionally add to updates if needed elsewhere
+                 # updates.append((source_name, target_name, scan_message))
 
 
     # Handle probabilistic agent movement (This part will be removed next)

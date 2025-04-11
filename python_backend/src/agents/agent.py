@@ -26,6 +26,7 @@ class Agent:
         self.conversation_history: List[Dict[str, str]] = []
         self.thinking: bool = False # Added for UI state tracking
         self.last_processed_response: Optional[Dict[str, Any]] = None # Added for UI state tracking
+        self.last_scan_result: Optional[str] = None # Added for UI state tracking of scan results
 
     def generate_response(self, updated_system_prompt: str) -> str:
         """
