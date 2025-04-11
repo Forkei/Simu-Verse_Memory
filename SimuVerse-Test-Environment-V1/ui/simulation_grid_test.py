@@ -589,6 +589,54 @@ async def simulation_step_async():
                  # Optionally add to updates if needed elsewhere
                  # updates.append((source_name, target_name, scan_message))
 
+             # --- Interact Tool ---
+             elif tool_use and tool_use.get("name") == "interact":
+                 params = tool_use.get("parameters", {})
+                 object_name = params.get("object")
+                 action = params.get("action")
+                 
+                 interaction_message = f"[Interaction Failed: Object '{object_name}' not found.]" # Default message
+                 
+                 if object_name in items:
+                     item = items[object_name]
+                     current_state = item["state"]
+                     item_type = item["type"]
+                     
+                     # Basic interaction logic (can be expanded)
+                     if item_type == "door":
+                         if action == "open" and current_state == "closed":
+                             item["state"] = "open"
+                             interaction_message = f"[Interaction: Opened '{object_name}'.]"
+                         elif action == "close" and current_state == "open":
+                             item["state"] = "closed"
+                             interaction_message = f"[Interaction: Closed '{object_name}'.]"
+                         else:
+                             interaction_message = f"[Interaction Failed: Cannot '{action}' door when it is '{current_state}'.]"
+                     elif item_type == "seat":
+                         if action == "sit" and current_state == "empty":
+                             item["state"] = f"occupied_by_{target_name}" # Mark who is sitting
+                             interaction_message = f"[Interaction: Sat on '{object_name}'.]"
+                         elif action == "stand" and current_state == f"occupied_by_{target_name}":
+                             item["state"] = "empty"
+                             interaction_message = f"[Interaction: Stood up from '{object_name}'.]"
+                         elif action == "sit" and current_state != "empty":
+                              interaction_message = f"[Interaction Failed: '{object_name}' is already occupied.]"
+                         else:
+                             interaction_message = f"[Interaction Failed: Cannot '{action}' on '{object_name}' in state '{current_state}'.]"
+                     # Add more item types and actions here
+                     else:
+                         interaction_message = f"[Interaction Failed: Unknown item type '{item_type}' for '{object_name}'.]"
+                 
+                 # Log the interaction result
+                 conversation_logs[target_name].append({
+                     "sender": "System",
+                     "message": interaction_message,
+                     "type": "system",
+                     "timestamp": datetime.datetime.now().isoformat()
+                 })
+                 # Optionally add to updates if needed elsewhere
+                 # updates.append((source_name, target_name, interaction_message))
+
 
     # Handle probabilistic agent movement (This part will be removed next)
     _handle_agent_movement(edges, previous_connections) # Removed agent_responses argument
