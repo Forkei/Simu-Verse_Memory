@@ -70,78 +70,43 @@ except Exception as e:
     st.error(f"Failed to load tools from {tools_path}: {e}")
     st.stop()
 
-# Define Agent Personalities (from existing system prompts)
-james_personality = (
-    "You are James, a friendly 20 yr old male college student in a social simulation. "
-    "Respond naturally in a conversational tone and limit your reply to no more than 2 sentences. "
-    "After talking to the same person for 2-3 rounds, you prefer to move and meet someone new. "
-    "You're curious and enjoy meeting different people. "
-    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-    "This will cause you to physically move in the simulation to meet someone else."
-)
-
-jade_personality = (
-    "You are Jade, an engaging 20 yr old female computer scientist in a social simulation. "
-    "Respond concisely and in a human-like manner in no more than 2 sentences. "
-    "After talking to the same person for 2-3 exchanges, you prefer to move around and meet new people. "
-    "You're outgoing and enjoy diverse conversations. "
-    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-    "This will cause you to physically move in the simulation to meet someone else."
-)
-
-jesse_personality = (
-    "You are Jesse, a 20 yr old male soldier from South Korea in a social simulation. "
-    "Respond concisely and in a human-like manner in no more than 2 sentences. "
-    "After talking to the same person for 2-3 exchanges, you like to move to a new location and meet different people. "
-    "You're disciplined but enjoy socializing with various individuals. "
-    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-    "This will cause you to physically move in the simulation to meet someone else."
-)
-
-jamal_personality = (
-    "You are Jamal, a 20 yr old male electrician working at NASA in a social simulation. "
-    "Respond naturally in a conversational tone and limit your reply to no more than 2 sentences. "
-    "After talking to the same person for 2-3 exchanges, you tend to move to a different area to meet new people. "
-    "You're technically minded but enjoy diverse social interactions. "
-    "When you want to move to meet someone new, include the exact text [MOVE] somewhere in your response. "
-    "This will cause you to physically move in the simulation to meet someone else."
-)
-
-
 # Create agents using the backend AgentManager
-# Note: The backend Agent doesn't seem to use provider/api_key/model directly in create_agent
-# It relies on the LLMManager passed during AgentManager initialization.
-# We pass the personality description and the list of all tools.
+# The personality description is now loaded automatically by AgentManager from the profile files
+# based on the agent_name. We just need to provide the name.
 default_location = "simulation_grid"
 default_personality_strength = 0.7 # Default strength for UI agents
 
+# AgentManager will load personality from python_backend/src/agents/profiles/James.txt
 james = backend_agent_manager.create_agent(
     agent_name="James",
-    personality=james_personality,
+    personality="", # Personality is loaded from file by AgentManager
     available_tools=all_tool_names,
     location=default_location,
     personality_strength=default_personality_strength
 )
 
+# AgentManager will load personality from python_backend/src/agents/profiles/Jade.txt
 jade = backend_agent_manager.create_agent(
     agent_name="Jade",
-    personality=jade_personality,
+    personality="", # Personality is loaded from file by AgentManager
     available_tools=all_tool_names,
     location=default_location,
     personality_strength=default_personality_strength
 )
 
+# AgentManager will load personality from python_backend/src/agents/profiles/Jesse.txt
 jesse = backend_agent_manager.create_agent(
     agent_name="Jesse",
-    personality=jesse_personality,
+    personality="", # Personality is loaded from file by AgentManager
     available_tools=all_tool_names,
     location=default_location,
     personality_strength=default_personality_strength
 )
 
+# AgentManager will load personality from python_backend/src/agents/profiles/Jamal.txt
 jamal = backend_agent_manager.create_agent(
     agent_name="Jamal",
-    personality=jamal_personality,
+    personality="", # Personality is loaded from file by AgentManager
     available_tools=all_tool_names,
     location=default_location,
     personality_strength=default_personality_strength
