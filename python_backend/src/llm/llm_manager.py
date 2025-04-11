@@ -29,10 +29,19 @@ class LLMManager:
             "openai": []
         }
 
-    def generate_with_ollama(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def _calculate_temperature(self, personality_strength: Optional[float] = 0.5) -> float:
+        """Calculates temperature based on personality strength. Range: [0.1, 1.0]"""
+        strength = personality_strength if personality_strength is not None else 0.5
+        # Inverse relationship: high strength -> low temp; low strength -> high temp
+        # Clamp strength between 0 and 1
+        clamped_strength = max(0.0, min(1.0, strength))
+        temperature = 1.0 - clamped_strength * 0.9
+        return max(0.1, temperature) # Ensure temperature is at least 0.1
+
+    def generate_with_ollama(self, prompt: str, system_prompt: Optional[str] = None, personality_strength: Optional[float] = 0.5) -> str:
         """Generate response using Ollama"""
         messages = self.conversation_histories["ollama"].copy()
-        
+        temperature = self._calculate_temperature(personality_strength)
         if system_prompt:
             messages.insert(0, {"role": "system", "content": system_prompt})
         
@@ -41,9 +50,10 @@ class LLMManager:
         try:
             response = self.ollama_client.chat(
                 model=self.current_models["ollama"],
-                messages=messages
+                messages=messages,
+                options={"temperature": temperature} # Pass temperature
             )
-            
+
             assistant_message = response['message']['content']
             self.conversation_histories["ollama"].append({"role": "user", "content": prompt})
             self.conversation_histories["ollama"].append({"role": "assistant", "content": assistant_message})
@@ -53,36 +63,42 @@ class LLMManager:
             print(f"Error with Ollama: {e}")
             return ""
 
-    def generate_with_anthropic(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate_with_anthropic(self, prompt: str, system_prompt: Optional[str] = None, personality_strength: Optional[float] = 0.5) -> str:
         """Generate response using Anthropic"""
         try:
             messages = []
+            temperature = self._calculate_temperature(personality_strength)
             if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            
+                # Anthropic API expects system prompt as a separate parameter
+                pass # System prompt is handled below
+
             for msg in self.conversation_histories["anthropic"]:
                 messages.append(msg)
-            
+
             messages.append({"role": "user", "content": prompt})
-            
+
             response = self.anthropic_client.messages.create(
                 model=self.current_models["anthropic"],
-                messages=messages
+                messages=messages,
+                system=system_prompt, # Pass system prompt here
+                temperature=temperature, # Pass temperature
+                max_tokens=1024 # Define max tokens or adjust as needed
             )
-            
+
             assistant_message = response.content[0].text
+            
             self.conversation_histories["anthropic"].append({"role": "user", "content": prompt})
             self.conversation_histories["anthropic"].append({"role": "assistant", "content": assistant_message})
-            
             return assistant_message
         except Exception as e:
             print(f"Error with Anthropic: {e}")
             return ""
 
-    def generate_with_openai(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate_with_openai(self, prompt: str, system_prompt: Optional[str] = None, personality_strength: Optional[float] = 0.5) -> str:
         """Generate response using OpenAI"""
         try:
             messages = []
+            temperature = self._calculate_temperature(personality_strength)
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             
@@ -93,9 +109,10 @@ class LLMManager:
             
             response = self.openai_client.chat.completions.create(
                 model=self.current_models["openai"],
-                messages=messages
+                messages=messages,
+                temperature=temperature # Pass temperature
             )
-            
+
             assistant_message = response.choices[0].message.content
             self.conversation_histories["openai"].append({"role": "user", "content": prompt})
             self.conversation_histories["openai"].append({"role": "assistant", "content": assistant_message})
@@ -105,14 +122,14 @@ class LLMManager:
             print(f"Error with OpenAI: {e}")
             return ""
 
-    def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate_response(self, prompt: str, system_prompt: Optional[str] = None, personality_strength: Optional[float] = 0.5) -> str:
         """Generate response using current provider"""
         if self.current_provider == "ollama":
-            return self.generate_with_ollama(prompt, system_prompt)
+            return self.generate_with_ollama(prompt, system_prompt, personality_strength)
         elif self.current_provider == "anthropic":
-            return self.generate_with_anthropic(prompt, system_prompt)
+            return self.generate_with_anthropic(prompt, system_prompt, personality_strength)
         elif self.current_provider == "openai":
-            return self.generate_with_openai(prompt, system_prompt)
+            return self.generate_with_openai(prompt, system_prompt, personality_strength)
         else:
             raise ValueError(f"Provider {self.current_provider} not supported")
 

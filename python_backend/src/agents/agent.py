@@ -41,10 +41,14 @@ class Agent:
         """
         # Construct the prompt from conversation history
         prompt = self._construct_prompt()
-        
-        # Generate response using the LLM
-        response = self.llm_manager.generate_response(prompt, updated_system_prompt)
-        
+
+        # Generate response using the LLM, passing personality strength
+        response = self.llm_manager.generate_response(
+            prompt,
+            updated_system_prompt,
+            personality_strength=self.personality_strength
+        )
+
         # Add the response to conversation history
         self.add_to_conversation("assistant", response)
         
