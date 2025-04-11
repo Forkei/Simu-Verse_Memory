@@ -1651,6 +1651,44 @@ def update_agent_settings(personality_values, personality_ids):
     return no_update
 
 
+# -------------------------
+# Callback: Display Retrieved Memories on Node Click
+# -------------------------
+@app.callback(
+    Output("memory-display-panel", "children"),
+    Input('cytoscape', 'tapNodeData'),
+    prevent_initial_call=True
+)
+def display_retrieved_memories(nodeData):
+    if nodeData is None:
+        return html.P("Click on an agent node to see recently retrieved memories.", className="text-muted small")
+
+    agent_name = nodeData.get("id")
+    if not agent_name or agent_name not in backend_agent_manager.agents:
+        return html.P("Agent not found.", className="text-danger small")
+
+    agent = backend_agent_manager.agents[agent_name]
+    last_response = getattr(agent, 'last_processed_response', None)
+    retrieved_memories = last_response.get("retrieved_memories", []) if last_response else []
+
+    if not retrieved_memories:
+        return html.P(f"No memories retrieved for {agent_name} in the last turn.", className="text-muted small")
+
+    memory_items = []
+    for i, mem in enumerate(retrieved_memories):
+        memory_items.append(
+            dbc.ListGroupItem([
+                html.H6(f"Memory {i+1} (Importance: {mem.get('importance', 'N/A')})", className="mb-1"),
+                html.Small(f"Category: {mem.get('category', 'N/A')}", className="text-muted d-block mb-1"),
+                html.P(mem.get('summary', 'No summary available.'), className="mb-1 small"),
+                html.Small(f"Keywords: {', '.join(mem.get('keywords', []))}", className="text-muted d-block"),
+                html.Small(f"Timestamp: {mem.get('timestamp', 'N/A')}", className="text-muted d-block")
+            ], className="mb-2 border-start-0 border-end-0")
+        )
+
+    return dbc.ListGroup(memory_items, flush=True)
+
+
 # @app.callback( # This decorator needs to be commented out as the function below is commented out
 # @app.callback(
 #     Output('cytoscape', 'elements', allow_duplicate=True),
