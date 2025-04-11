@@ -97,9 +97,10 @@ class AgentManager:
             llm_manager=self.llm_manager,
             system_prompt=system_prompt,
             available_tools=agent_tools,
-            location=location
+            location=location,
+            personality_strength=personality_strength # Pass to Agent constructor
         )
-        
+
         # Create the subconscious agent
         subconscious = SubconsciousAgent(
             agent_name=agent_name,

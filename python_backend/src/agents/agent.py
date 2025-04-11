@@ -6,11 +6,11 @@ class Agent:
     Base class for all agents in the simulation.
     """
     
-    def __init__(self, name: str, llm_manager: LLMManager, system_prompt: str, 
-                 available_tools: Dict[str, Any], location: str = "starting_area"):
+    def __init__(self, name: str, llm_manager: LLMManager, system_prompt: str,
+                 available_tools: Dict[str, Any], location: str = "starting_area",
+                 personality_strength: float = 0.5): # Add personality_strength
         """
         Initialize an agent.
-        
         Args:
             name: The agent's name
             llm_manager: LLM manager for generating responses
@@ -27,6 +27,7 @@ class Agent:
         self.thinking: bool = False # Added for UI state tracking
         self.last_processed_response: Optional[Dict[str, Any]] = None # Added for UI state tracking
         self.last_scan_result: Optional[str] = None # Added for UI state tracking of scan results
+        self.personality_strength: float = personality_strength # Store personality strength
 
     def generate_response(self, updated_system_prompt: str) -> str:
         """

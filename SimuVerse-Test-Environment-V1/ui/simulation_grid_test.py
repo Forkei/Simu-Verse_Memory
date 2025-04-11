@@ -113,33 +113,38 @@ jamal_personality = (
 # It relies on the LLMManager passed during AgentManager initialization.
 # We pass the personality description and the list of all tools.
 default_location = "simulation_grid"
+default_personality_strength = 0.7 # Default strength for UI agents
 
 james = backend_agent_manager.create_agent(
     agent_name="James",
     personality=james_personality,
     available_tools=all_tool_names,
-    location=default_location
+    location=default_location,
+    personality_strength=default_personality_strength
 )
 
 jade = backend_agent_manager.create_agent(
     agent_name="Jade",
     personality=jade_personality,
     available_tools=all_tool_names,
-    location=default_location
+    location=default_location,
+    personality_strength=default_personality_strength
 )
 
 jesse = backend_agent_manager.create_agent(
     agent_name="Jesse",
     personality=jesse_personality,
     available_tools=all_tool_names,
-    location=default_location
+    location=default_location,
+    personality_strength=default_personality_strength
 )
 
 jamal = backend_agent_manager.create_agent(
     agent_name="Jamal",
     personality=jamal_personality,
     available_tools=all_tool_names,
-    location=default_location
+    location=default_location,
+    personality_strength=default_personality_strength
 )
 
 
@@ -1156,10 +1161,20 @@ app.layout = html.Div([
                                 #         # value=agent.personality_strength, # Placeholder
                                 #         value=0.5, # Default to 0.5 for now
                                 #         marks={0: 'Low', 1: 'High'},
-                                #         className="mb-2"
-                                #     )
-                                # ])
-                                html.Div("Settings sliders disabled until backend integration.", className="text-muted small")
+                                ]),
+                                dbc.Row([
+                                    html.Small("Personality", className="text-muted"),
+                                    dcc.Slider(
+                                        id={'type': 'personality-slider', 'index': name},
+                                        min=0,
+                                        max=1,
+                                        step=0.1,
+                                        value=agent.personality_strength if hasattr(agent, 'personality_strength') else 0.5, # Use agent's value
+                                        marks={0: 'Low', 1: 'High'},
+                                        className="mb-2"
+                                    )
+                                ])
+                                # html.Div("Settings sliders disabled until backend integration.", className="text-muted small") # Re-enable sliders
                             ], width=6)
                         ], className="mb-2 node-card")
                         # Use the backend agent manager's agents dictionary
@@ -1534,6 +1549,37 @@ def update_movement_stats(elements_data, n_intervals):
             html.Div(movement_info)
         ]),
     ])
+
+# -------------------------
+# Callback: Update Agent Settings (Personality Strength)
+# -------------------------
+@app.callback(
+    Output({'type': 'personality-slider', 'index': ALL}, 'value', allow_duplicate=True), # Keep slider value updated if needed elsewhere
+    Input({'type': 'personality-slider', 'index': ALL}, 'value'),
+    State({'type': 'personality-slider', 'index': ALL}, 'id'),
+    prevent_initial_call=True
+)
+def update_agent_settings(personality_values, personality_ids):
+    triggered_id = callback_context.triggered_id
+    if not triggered_id:
+        return no_update
+
+    # Find which slider triggered the callback
+    agent_name = triggered_id['index']
+    new_strength = personality_values[personality_ids.index(triggered_id)]
+
+    # Update the corresponding agent's personality strength
+    if agent_name in backend_agent_manager.agents:
+        agent = backend_agent_manager.agents[agent_name]
+        agent.personality_strength = float(new_strength)
+        print(f"Updated {agent_name}'s personality strength to: {agent.personality_strength}") # Debug print
+    else:
+        print(f"Warning: Agent {agent_name} not found for settings update.")
+
+    # Return no_update as we are only updating the backend state, not the slider value itself directly
+    # (unless another callback depends on this output)
+    return no_update
+
 
 # @app.callback( # This decorator needs to be commented out as the function below is commented out
 # @app.callback(
