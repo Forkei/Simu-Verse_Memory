@@ -2,8 +2,16 @@ import streamlit as st
 import os
 from time import sleep
 from dotenv import load_dotenv
-from modules.framework import create_agent
-from src.agent_manager import create_agent_with_llm
+import sys
+
+# Adjust path to import from python_backend
+backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'python_backend', 'src'))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
+
+from llm.llm_manager import LLMManager
+from memory.weaviate_client import WeaviateClient # Or MockWeaviateClient
+from agents.agent_manager import AgentManager as BackendAgentManager
 
 def generate_markdown(conversation_log):
     """Helper function to generate markdown for the conversation log."""
@@ -18,71 +26,52 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 hf_api_key = os.getenv("HUGGINGFACE_API_KEY")
 claude_api_key = os.getenv("CLAUDE_API_KEY")
 if not openai_api_key or not claude_api_key:
-    st.error("API Key not found in environment variables.")
+    st.error("OpenAI or Claude API key not found in environment variables.")
+    st.stop()
+
+# Instantiate Managers (using backend components)
+llm_manager = LLMManager() # Assumes API keys are loaded via dotenv in LLMManager itself
+# Use MockWeaviateClient for this test script as Weaviate might not be running
+from memory.mock_weaviate_client import MockWeaviateClient
+weaviate_client = MockWeaviateClient(url="mock://localhost") # Mock client doesn't need a real URL
+
+backend_agent_manager = BackendAgentManager(llm_manager=llm_manager, weaviate_client=weaviate_client)
+
+# Load Tools (needed for agent creation)
+tools_path = os.path.join(backend_path, "config", "tools.json")
+try:
+    with open(tools_path, 'r') as f:
+        tools_config = json.load(f)
+    all_tool_names = list(tools_config.keys())
+except Exception as e:
+    st.error(f"Failed to load tools from {tools_path}: {e}")
     st.stop()
 
 st.title("Multi-Agent Conversation Test")
-st.write("This app demonstrates the integration between framework.py and agent_manager.py")
+st.write("This app demonstrates the backend agent system.")
 
-# Test type selection
-test_type = st.radio(
-    "Select test type:",
-    ["Framework Agents Only", "Integrated Agent Manager", "Compare Both"]
+# Create two agents using the backend AgentManager
+james_personality = (
+    "You are James, a friendly conversation partner who is a 20 yr old male. "
+    "Please respond naturally in a conversational tone and limit your reply to no more than 2 sentences."
+)
+james = backend_agent_manager.create_agent(
+    agent_name="James",
+    personality=james_personality,
+    available_tools=all_tool_names,
+    location="test_environment"
 )
 
-if test_type == "Framework Agents Only" or test_type == "Compare Both":
-    st.subheader("Framework Agents")
-    
-    # Create two agents with framework.py
-    james_framework = create_agent(
-        provider="openai",
-        name="James",
-        api_key=openai_api_key,
-        model="gpt-4o-mini",
-        system_prompt=(
-            "You are James, a friendly conversation partner who is a 20 yr old male. "
-            "Please respond naturally in a conversational tone and limit your reply to no more than 2 sentences."
-        )
-    )
-    
-    jade_framework = create_agent(
-        provider="claude",
-        name="Jade",
-        api_key=claude_api_key,
-        model="claude-3-5-haiku-20241022",
-        system_prompt=(
-            "You are Jade, an engaging conversation expert who is a 20 yr old female."
-            "Respond in a concise, human-like manner using no more than 2 sentences."
-        )
-    )
-
-if test_type == "Integrated Agent Manager" or test_type == "Compare Both":
-    st.subheader("Integrated Agent Manager")
-    
-    # Create two agents with the integrated agent_manager.py
-    james_integrated = create_agent_with_llm(
-        agent_id=1,
-        name="James",
-        provider="openai",
-        api_key=openai_api_key,
-        model="gpt-4o-mini",
-        system_prompt=(
-            "You are James, a friendly conversation partner who is a 20 yr old male. "
-            "Please respond naturally in a conversational tone and limit your reply to no more than 2 sentences."
-        )
-    )
-    
-    jade_integrated = create_agent_with_llm(
-        agent_id=2,
-        name="Jade",
-        provider="claude",
-        api_key=claude_api_key,
-        model="claude-3-5-haiku-20241022",
-        system_prompt=(
-            "You are Jade, an engaging conversation expert who is a 20 yr old female."
-            "Respond in a concise, human-like manner using no more than 2 sentences."
-        )
-    )
+jade_personality = (
+    "You are Jade, an engaging conversation expert who is a 20 yr old female."
+    "Respond in a concise, human-like manner using no more than 2 sentences."
+)
+jade = backend_agent_manager.create_agent(
+    agent_name="Jade",
+    personality=jade_personality,
+    available_tools=all_tool_names,
+    location="test_environment"
+)
 
 # Input for the initial message
 initial_message = st.text_input(
@@ -94,84 +83,35 @@ initial_message = st.text_input(
 num_rounds = st.number_input("Number of rounds", min_value=1, max_value=10, value=3, step=1)
 
 if st.button("Start Conversation") and initial_message:
-    # Framework agents conversation (if selected)
-    if test_type == "Framework Agents Only" or test_type == "Compare Both":
-        with st.expander("Framework Agents Conversation", expanded=True):
-            conversation_log = []
-            chat_placeholder = st.empty()
+    with st.expander("Backend Agent Conversation", expanded=True):
+        conversation_log = []
+        chat_placeholder = st.empty()
+        
+        # Use backend agent manager to process turns
+        current_speaker = "James"
+        message_to_process = initial_message
+        
+        for i in range(num_rounds * 2): # Each round has two turns
+            target_agent_name = current_speaker
             
-            # Start conversation: first response from james
-            response = james_framework(initial_message)
-            conversation_log.append(("James", response))
+            st.write(f"Processing turn for: {target_agent_name}")
+            
+            # Process turn using backend manager
+            processed_response = backend_agent_manager.process_agent_turn(target_agent_name, message_to_process)
+            
+            # Extract display message (simplified for this test)
+            reflection = processed_response.get("reflection", {})
+            display_response = reflection.get("description", "...") # Or use other fields
+            
+            conversation_log.append((target_agent_name, display_response))
             chat_placeholder.markdown(generate_markdown(conversation_log))
-            sleep(1)  # Optional: small pause for realism
+            sleep(1) # Optional pause
             
-            # jade responds to james's reply
-            response = jade_framework(response)
-            conversation_log.append(("Jade", response))
-            chat_placeholder.markdown(generate_markdown(conversation_log))
-            sleep(1)
+            # Prepare for next turn
+            message_to_process = display_response # Next agent responds to this
+            current_speaker = "Jade" if current_speaker == "James" else "James"
             
-            # Continue for remaining rounds
-            for i in range(num_rounds - 1):
-                response = james_framework(response)
-                conversation_log.append(("James", response))
-                chat_placeholder.markdown(generate_markdown(conversation_log))
-                sleep(1)
-                
-                response = jade_framework(response)
-                conversation_log.append(("Jade", response))
-                chat_placeholder.markdown(generate_markdown(conversation_log))
-                sleep(1)
-                
-            # Display whether agents want to move
-            st.write("**Movement Check:**")
-            st.write(f"James wants to move: {james_framework.wants_to_move()}")
-            st.write(f"Jade wants to move: {jade_framework.wants_to_move()}")
-    
-    # Integrated agents conversation (if selected)
-    if test_type == "Integrated Agent Manager" or test_type == "Compare Both":
-        with st.expander("Integrated Agent Manager Conversation", expanded=True):
-            conversation_log = []
-            chat_placeholder = st.empty()
-            
-            # Start conversation: first response from james
-            response = james_integrated.generate_response(initial_message)
-            conversation_log.append(("James", response))
-            chat_placeholder.markdown(generate_markdown(conversation_log))
-            sleep(1)  # Optional: small pause for realism
-            
-            # jade responds to james's reply
-            response = jade_integrated.generate_response(response)
-            conversation_log.append(("Jade", response))
-            chat_placeholder.markdown(generate_markdown(conversation_log))
-            sleep(1)
-            
-            # Continue for remaining rounds
-            for i in range(num_rounds - 1):
-                response = james_integrated.generate_response(response)
-                conversation_log.append(("James", response))
-                chat_placeholder.markdown(generate_markdown(conversation_log))
-                sleep(1)
-                
-                response = jade_integrated.generate_response(response)
-                conversation_log.append(("Jade", response))
-                chat_placeholder.markdown(generate_markdown(conversation_log))
-                sleep(1)
-                
-            # Display whether agents want to move
-            st.write("**Movement Check:**")
-            st.write(f"James wants to move: {james_integrated.wants_to_move()}")
-            st.write(f"Jade wants to move: {jade_integrated.wants_to_move()}")
-            
-            # Display state information
-            st.write("**Agent States:**")
-            st.write(f"James state: {james_integrated.get_state()['state']}")
-            st.write(f"Jade state: {jade_integrated.get_state()['state']}")
-            
-            # Display memory and personality settings
-            st.write("**Memory & Personality:**")
-            st.write(f"James memory enabled: {james_integrated.get_state()['Memory Enabled']}")
-            st.write(f"James personality strength: {james_integrated.get_state()['Personality Strength']}")
-            st.write(f"Jade memory enabled: {jade_integrated.get_state()['Memory Enabled']}")
-            st.write(f"Jade personality strength: {jade_integrated.get_state()['Personality Strength']}")
+        # Display final state/info if needed
+        st.write("**Final Agent Info:**")
+        st.write(f"James last response details: {james.last_processed_response}")
+        st.write(f"Jade last response details: {jade.last_processed_response}")

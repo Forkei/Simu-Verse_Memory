@@ -25,11 +25,8 @@ from memory.weaviate_client import WeaviateClient
 from agents.agent_manager import AgentManager as BackendAgentManager
 from agents.agent import Agent as BackendAgent # Import backend Agent for type hinting if needed
 
-# Keep the original AgentManager import for Status enum, or adjust later
-from src.agent_manager import Status, Agent as UIAgent # Alias the UI Agent if needed
-
 # Remove the old create_agent_with_llm import if no longer used directly
-# from src.agent_manager import create_agent_with_llm
+# from src.agent_manager import create_agent_with_llm # This file will be deleted
 
 # -------------------------
 # Load API Keys, Instantiate Managers, Load Tools, and Create Agents
@@ -229,7 +226,6 @@ def generate_elements(positions):
         
         # Get the agent's current state
         agent = agent_lookup[name]
-        agent_state = agent.state.name if hasattr(agent, 'state') else "IDLE"
         
         # Track if the agent is thinking for animation
         thinking = agent.thinking if hasattr(agent, 'thinking') else False
@@ -245,11 +241,11 @@ def generate_elements(positions):
         
         elements.append({
             "data": {
-                "id": name, 
+                "id": name,
                 "label": name,
                 "movement_probability": probability,
                 "class": movement_class,
-                "state": agent_state, # TODO: Use backend agent state if available
+                # "state": agent_state, # Removed, using 'thinking' directly
                 "thinking": thinking # Use the 'thinking' attribute
             },
             "position": {"x": pos["x"], "y": pos["y"]}
@@ -466,6 +462,11 @@ async def simulation_step_async():
             # TODO: Update UI immediately to show thinking state if possible (might need dcc.Store)
 
             processed_response = backend_agent_manager.process_agent_turn(target_name, input_message)
+            
+            # Reset thinking state immediately after the call returns
+            target_agent.thinking = False
+            # TODO: Update UI immediately if possible
+
             target_agent.last_processed_response = processed_response # Store the result on the agent
 
             # Determine the display message based on the processed response
@@ -502,11 +503,11 @@ async def simulation_step_async():
                 "type": "system"
             })
             updates.append((source_name, target_name, error_message))
+            # Reset thinking state in case of error too
+            if target_agent:
+                target_agent.thinking = False
+                # TODO: Update UI immediately if possible
         finally:
-             # Reset thinking state
-             target_agent.thinking = False
-             # TODO: Update UI immediately if possible
-
              # --- Tool Execution ---
              # Ensure processed_response is not None before accessing tool_use
              tool_use = processed_response.get("tool_use") if processed_response else None
@@ -874,10 +875,10 @@ app.layout = html.Div([
                                     'text-background-padding': '4px'
                                 }},
                                 # Thinking state styling with CSS animation
-                                {'selector': 'node[state="THINKING"]', 'style': {
+                                {'selector': 'node[?thinking]', 'style': { # Use the boolean 'thinking' attribute
                                     'background-color': '#9C27B0',  # Purple for thinking state
                                     'border-width': 4,
-                                    'border-color': '#E1BEE7', 
+                                    'border-color': '#E1BEE7',
                                     'border-style': 'dashed',
                                     'border-opacity': 1,
                                     'border-dash-pattern': [6, 3],
