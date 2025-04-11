@@ -1208,7 +1208,7 @@ app.layout = html.Div([
             ], md=4)
         ])
     ], fluid=True)
-])
+# ]) # Removed extra closing bracket
 
 
 # We'll modify our approach to animation without using direct cy access
