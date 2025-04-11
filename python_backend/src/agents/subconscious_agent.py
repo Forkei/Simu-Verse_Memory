@@ -179,21 +179,20 @@ class SubconsciousAgent:
         memory["timestamp"] = datetime.datetime.now().isoformat()
         memory["location"] = location
         memory["agent"] = self.agent_name
-        memory["id"] = str(uuid.uuid4())
-        
+        memory["id"] = str(uuid.uuid4()) # Ensure ID is set before adding
+
         # Store in Weaviate
-        self.weaviate_client.add_object(
-            collection_name=collection_name,
-            properties=properties,
-            uuid=obj_id # Pass the generated or existing UUID
-            # vector=... # Optionally provide pre-computed vector
-        )
-
-        # The insert method now returns the UUID directly
-        inserted_uuid = collection.data.insert(properties, uuid=obj_id)
-
-        logger.info(f"Added object to {collection_name} with ID {inserted_uuid}")
-        return str(inserted_uuid) # Return as string
+        try:
+            inserted_uuid = self.weaviate_client.add_object(
+                collection_name=self.collection_name,
+                properties=memory,
+                uuid=memory["id"] # Pass the generated UUID
+            )
+            logger.info(f"Memory created and stored for {self.agent_name}. ID: {inserted_uuid}")
+            return memory # Return the original memory dict
+        except Exception as e:
+            logger.error(f"Failed to add memory object to Weaviate for {self.agent_name}: {e}", exc_info=True)
+            return {} # Return empty dict on failure
 
     def _parse_memory_xml(self, xml_response: str) -> Optional[Dict[str, Any]]:
         """

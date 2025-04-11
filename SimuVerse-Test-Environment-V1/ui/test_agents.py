@@ -74,8 +74,7 @@ james = backend_agent_manager.create_agent(
     available_tools=all_tool_names,
     location="test_environment"
 )
-logger.info(f"Created agent: {jade.name}")
-logger.info(f"Created agent: {james.name}")
+logger.info(f"Created agent: {james.name}") # Corrected variable name
 
 jade_personality = (
     "You are Jade, an engaging conversation expert who is a 20 yr old female."

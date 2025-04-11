@@ -107,10 +107,7 @@ james = backend_agent_manager.create_agent(
     location=default_location,
     personality_strength=default_personality_strength
 )
-logger.info(f"Created agent: {jamal.name}")
-logger.info(f"Created agent: {jesse.name}")
-logger.info(f"Created agent: {jade.name}")
-logger.info(f"Created agent: {james.name}")
+logger.info(f"Created agent: {james.name}") # Corrected variable name
 
 # AgentManager will load personality from python_backend/src/agents/profiles/Jade.txt
 jade = backend_agent_manager.create_agent(
