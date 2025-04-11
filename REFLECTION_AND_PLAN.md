@@ -57,7 +57,7 @@ This document outlines the current state of the SimuVerse codebase, identifies a
 *   [x] **Implement Environment Interaction:** Flesh out tools like `interact` by adding a simple environment state representation. (Partially done: Targeted movement, Scan, and basic Interact implemented).
 *   [x] Enhance UI (Partially done: chat history parsing, movement status updated, chat ordering/timestamps implemented, personality slider enabled. Needs agent detail panels).
 *   [ ] **Implement Personality:** Integrate the personality system fully. (Partially done: Strength attribute added and controllable via UI, influences LLM temperature).
-*   [x] **Logging:** Implement centralized logging using `python_backend/src/utils/logging.py`. (Partially done: Setup complete, integrated into backend and UI scripts).
+*   [x] **Logging:** Implement centralized logging using `python_backend/src/utils/logging.py`. (Done: Setup complete, integrated into backend and UI scripts).
 *   [ ] **Testing:** Create unit and integration tests.
 
 ### V. Documentation:
