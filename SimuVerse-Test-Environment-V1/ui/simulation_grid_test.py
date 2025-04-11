@@ -47,17 +47,30 @@ if not openai_api_key or not claude_api_key:
     st.stop()
 if not weaviate_url:
     st.error("WEAVIATE_URL not found in environment variables.")
-    st.stop()
+    # st.stop() # Use logger instead of Streamlit for errors in Dash app
+    logger.critical("OpenAI or Claude API key not found in environment variables. Exiting.")
+    sys.exit(1)
+if not weaviate_url:
+    # st.error("WEAVIATE_URL not found in environment variables.")
+    logger.critical("WEAVIATE_URL not found in environment variables. Exiting.")
+    # st.stop()
+    sys.exit(1)
 
 # Instantiate Managers
+logger.info("Instantiating LLMManager...")
 llm_manager = LLMManager() # Assumes API keys are loaded via dotenv in LLMManager itself
 try:
     # Assuming Weaviate doesn't need an API key for local setup
+    logger.info(f"Connecting to Weaviate at {weaviate_url}...")
     weaviate_client = WeaviateClient(url=weaviate_url, api_key=None)
+    logger.info("Weaviate connection successful.")
 except Exception as e:
-    st.error(f"Failed to connect to Weaviate at {weaviate_url}: {e}")
-    st.stop()
+    # st.error(f"Failed to connect to Weaviate at {weaviate_url}: {e}")
+    logger.critical(f"Failed to connect to Weaviate at {weaviate_url}: {e}", exc_info=True)
+    # st.stop()
+    sys.exit(1)
 
+logger.info("Instantiating BackendAgentManager...")
 backend_agent_manager = BackendAgentManager(llm_manager=llm_manager, weaviate_client=weaviate_client)
 
 # Load Tools
@@ -66,9 +79,12 @@ try:
     with open(tools_path, 'r') as f:
         tools_config = json.load(f)
     all_tool_names = list(tools_config.keys())
+    logger.info(f"Loaded tools: {all_tool_names}")
 except Exception as e:
-    st.error(f"Failed to load tools from {tools_path}: {e}")
-    st.stop()
+    # st.error(f"Failed to load tools from {tools_path}: {e}")
+    logger.critical(f"Failed to load tools from {tools_path}: {e}", exc_info=True)
+    # st.stop()
+    sys.exit(1)
 
 # Create agents using the backend AgentManager
 # The personality description is now loaded automatically by AgentManager from the profile files
@@ -84,6 +100,10 @@ james = backend_agent_manager.create_agent(
     location=default_location,
     personality_strength=default_personality_strength
 )
+logger.info(f"Created agent: {jamal.name}")
+logger.info(f"Created agent: {jesse.name}")
+logger.info(f"Created agent: {jade.name}")
+logger.info(f"Created agent: {james.name}")
 
 # AgentManager will load personality from python_backend/src/agents/profiles/Jade.txt
 jade = backend_agent_manager.create_agent(
@@ -238,7 +258,7 @@ def move_agent(agent_name: str, current_positions: dict, landmarks: dict, target
     Move an agent towards a target or randomly if no specific target.
     """
     import random
-    import logging # Add logging
+    # import logging # Use logger from setup
     import math
     from typing import Optional # Add Optional for type hinting
 
@@ -252,19 +272,22 @@ def move_agent(agent_name: str, current_positions: dict, landmarks: dict, target
     if target_type == "agent" and target_name in current_positions:
         target_x = current_positions[target_name]["x"]
         target_y = current_positions[target_name]["y"]
-        logging.info(f"Agent '{agent_name}' moving towards agent '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
+        logger.info(f"Agent '{agent_name}' moving towards agent '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
     elif target_type == "landmark" and target_name in landmarks:
         target_x = landmarks[target_name]["x"]
         target_y = landmarks[target_name]["y"]
-        logging.info(f"Agent '{agent_name}' moving towards landmark '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
+        logger.info(f"Agent '{agent_name}' moving towards landmark '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
     # Add 'item' type later if needed
-    # elif target_type == "item" and target_name in items:
+    # elif target_type == "item" and target_name in items: # Assuming 'items' is defined globally like 'landmarks'
     #     target_x = items[target_name]["x"]
     #     target_y = items[target_name]["y"]
-    #     logging.info(f"Agent '{agent_name}' moving towards item '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
+    #     logger.info(f"Agent '{agent_name}' moving towards item '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
     else:
-        logging.info(f"Agent '{agent_name}' moving randomly (target '{target_name}' of type '{target_type}' not found or invalid).")
-        # Fallback to random movement if target is invalid/not found
+        if target_type or target_name: # Only log if a target was intended but not found
+            logger.warning(f"Agent '{agent_name}' target '{target_name}' of type '{target_type}' not found or invalid. Moving randomly.")
+        else:
+            logger.info(f"Agent '{agent_name}' moving randomly (no specific target).")
+        # Fallback to random movement if target is invalid/not found or not specified
         target_x, target_y = None, None
 
     # Calculate movement vector
@@ -280,7 +303,7 @@ def move_agent(agent_name: str, current_positions: dict, landmarks: dict, target
              move_dist = movement_distance / 4 # Smaller random step
              new_x = current_x + move_dist * math.cos(angle)
              new_y = current_y + move_dist * math.sin(angle)
-             logging.info(f"Agent '{agent_name}' close to target, making small random move.")
+             logger.debug(f"Agent '{agent_name}' close to target, making small random move.")
         else:
             # Move towards target
             scale = movement_distance / distance_to_target
@@ -382,7 +405,8 @@ async def simulation_step_async():
     global landmarks, items # Explicitly declare usage of global variables
     import random
     import asyncio
-    
+
+    logger.info("Starting async simulation step...")
     updates = []
     edges = compute_edges(agent_positions)
     
@@ -450,12 +474,18 @@ async def simulation_step_async():
         try:
             # Set thinking state
             target_agent.thinking = True
+            logger.debug(f"Agent {target_name} set to thinking=True")
             # TODO: Update UI immediately to show thinking state if possible (might need dcc.Store)
 
-            processed_response = backend_agent_manager.process_agent_turn(target_name, input_message)
-            
+            logger.debug(f"Calling process_agent_turn for {target_name} with input: {full_input_message[:50]}...")
+            processed_response = await asyncio.to_thread(
+                backend_agent_manager.process_agent_turn, target_name, full_input_message
+            )
+            logger.debug(f"Received processed response for {target_name}")
+
             # Reset thinking state immediately after the call returns
             target_agent.thinking = False
+            logger.debug(f"Agent {target_name} set to thinking=False")
             # TODO: Update UI immediately if possible
 
             target_agent.last_processed_response = processed_response # Store the result on the agent
@@ -485,9 +515,11 @@ async def simulation_step_async():
                 "timestamp": datetime.datetime.now().isoformat() # Add timestamp
             })
             updates.append((source_name, target_name, display_response)) # Keep updates for potential other uses
+            logger.info(f"Agent {target_name} responded. Tool used: {tool_use.get('name', 'None')}")
 
         except Exception as e:
-            st.error(f"Error processing turn for {target_name}: {e}")
+            # st.error(f"Error processing turn for {target_name}: {e}") # Remove Streamlit dependency
+            logger.error(f"Error processing turn for {target_name}: {e}", exc_info=True)
             error_message = "[Error processing turn]"
             conversation_logs[target_name].append({
                 "sender": "System",
@@ -510,10 +542,12 @@ async def simulation_step_async():
                  params = tool_use.get("parameters", {})
                  target_type = params.get("target_type")
                  target_name_param = params.get("target_name") # Renamed to avoid conflict
+                 logger.info(f"Agent {target_name} executing 'movement' tool: target_type={target_type}, target_name={target_name_param}")
 
                  # Move the agent using the parameters, passing the global landmarks
                  new_position = move_agent(target_name, agent_positions, landmarks, target_type, target_name_param)
                  agent_positions[target_name] = new_position
+                 logger.info(f"Agent {target_name} moved to ({new_position['x']:.0f}, {new_position['y']:.0f})")
                  # Reset cooldown as the agent chose to move
                  agent_movement_cooldown[target_name] = 0
 
@@ -536,10 +570,12 @@ async def simulation_step_async():
                  params = tool_use.get("parameters", {})
                  radius = params.get("radius", 100) # Default radius if not specified
                  scan_filter = params.get("filter", "all")
-                 
+                 logger.info(f"Agent {target_name} executing 'scan' tool: radius={radius}, filter={scan_filter}")
+
                  # Perform scan logic here (using UI state)
                  scan_results = _perform_scan(target_name, agent_positions, landmarks, radius, scan_filter)
-                 
+                 logger.debug(f"Scan results for {target_name}: {scan_results}")
+
                  # Store results on the agent object for the *next* turn's input
                  target_agent.last_scan_result = scan_results
                  
@@ -559,9 +595,10 @@ async def simulation_step_async():
                  params = tool_use.get("parameters", {})
                  object_name = params.get("object")
                  action = params.get("action")
-                 
+                 logger.info(f"Agent {target_name} executing 'interact' tool: object='{object_name}', action='{action}'")
+
                  interaction_message = f"[Interaction Failed: Object '{object_name}' not found.]" # Default message
-                 
+
                  if object_name in items:
                      item = items[object_name]
                      current_state = item["state"]
@@ -591,7 +628,8 @@ async def simulation_step_async():
                      # Add more item types and actions here
                      else:
                          interaction_message = f"[Interaction Failed: Unknown item type '{item_type}' for '{object_name}'.]"
-                 
+                 logger.debug(f"Interaction result for {target_name}: {interaction_message}")
+
                  # Log the interaction result
                  conversation_logs[target_name].append({
                      "sender": "System",
@@ -604,10 +642,11 @@ async def simulation_step_async():
 
 
     # Handle probabilistic agent movement (This part will be removed next)
-    _handle_agent_movement(edges, previous_connections) # Removed agent_responses argument
-    
+    # _handle_agent_movement(edges, previous_connections) # Removed agent_responses argument
+
     # Store current connections for next step comparison
     simulation_step_async.previous_connections = current_connections
+    logger.info("Async simulation step finished.")
     return updates
 
 
@@ -653,10 +692,12 @@ def _handle_agent_movement(edges, previous_connections):
 
 def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, radius: float, scan_filter: str) -> str:
     """
-    Performs a scan from the scanner's position to find nearby agents and landmarks.
+    Performs a scan from the scanner's position to find nearby agents and landmarks. Returns a descriptive string.
     """
+    logger.debug(f"Performing scan for {scanner_name} at {positions.get(scanner_name)} with radius {radius}, filter '{scan_filter}'")
     scanner_pos = positions.get(scanner_name)
     if not scanner_pos:
+        logger.error(f"Scanner position unknown for agent {scanner_name}")
         return "Error: Scanner position unknown."
 
     nearby_agents = []
@@ -674,6 +715,7 @@ def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, radi
             if dist_sq <= radius_sq:
                 distance = math.sqrt(dist_sq)
                 nearby_agents.append(f"{name} (dist: {distance:.1f})")
+                logger.debug(f"Scan found agent: {name} at distance {distance:.1f}")
 
     # Scan for landmarks
     if scan_filter in ["landmarks", "all"]:
@@ -684,11 +726,13 @@ def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, radi
             if dist_sq <= radius_sq:
                 distance = math.sqrt(dist_sq)
                 nearby_landmarks.append(f"{name} (dist: {distance:.1f})")
+                logger.debug(f"Scan found landmark: {name} at distance {distance:.1f}")
 
     # Format results
     result_str = "Nearby Agents: " + (", ".join(nearby_agents) if nearby_agents else "None") + \
                  ". Nearby Landmarks: " + (", ".join(nearby_landmarks) if nearby_landmarks else "None") + "."
-                 
+
+    logger.debug(f"Scan result string for {scanner_name}: {result_str}")
     return result_str
 
 
@@ -1585,9 +1629,9 @@ def update_agent_settings(personality_values, personality_ids):
     if agent_name in backend_agent_manager.agents:
         agent = backend_agent_manager.agents[agent_name]
         agent.personality_strength = float(new_strength)
-        print(f"Updated {agent_name}'s personality strength to: {agent.personality_strength}") # Debug print
+        logger.info(f"Updated {agent_name}'s personality strength to: {agent.personality_strength}") # Use logger
     else:
-        print(f"Warning: Agent {agent_name} not found for settings update.")
+        logger.warning(f"Agent {agent_name} not found for settings update.")
 
     # Return no_update as we are only updating the backend state, not the slider value itself directly
     # (unless another callback depends on this output)
@@ -1623,4 +1667,5 @@ def update_agent_settings(personality_values, personality_ids):
 #     return elements  # Return existing elements to refresh display
 
 if __name__ == '__main__':
+    logger.info("Starting Dash application...")
     app.run(debug=True, port=8050)

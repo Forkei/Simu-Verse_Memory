@@ -1,9 +1,15 @@
 from typing import Optional, Dict, Any, List
 import os
+import logging
 from dotenv import load_dotenv
 import ollama
 import anthropic
 from openai import OpenAI
+
+# Setup logging
+from ..utils.logging import setup_logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -57,10 +63,10 @@ class LLMManager:
             assistant_message = response['message']['content']
             self.conversation_histories["ollama"].append({"role": "user", "content": prompt})
             self.conversation_histories["ollama"].append({"role": "assistant", "content": assistant_message})
-            
+
             return assistant_message
         except Exception as e:
-            print(f"Error with Ollama: {e}")
+            logger.error(f"Error generating response with Ollama: {e}", exc_info=True)
             return ""
 
     def generate_with_anthropic(self, prompt: str, system_prompt: Optional[str] = None, personality_strength: Optional[float] = 0.5) -> str:
@@ -91,7 +97,7 @@ class LLMManager:
             self.conversation_histories["anthropic"].append({"role": "assistant", "content": assistant_message})
             return assistant_message
         except Exception as e:
-            print(f"Error with Anthropic: {e}")
+            logger.error(f"Error generating response with Anthropic: {e}", exc_info=True)
             return ""
 
     def generate_with_openai(self, prompt: str, system_prompt: Optional[str] = None, personality_strength: Optional[float] = 0.5) -> str:
@@ -116,10 +122,10 @@ class LLMManager:
             assistant_message = response.choices[0].message.content
             self.conversation_histories["openai"].append({"role": "user", "content": prompt})
             self.conversation_histories["openai"].append({"role": "assistant", "content": assistant_message})
-            
+
             return assistant_message
         except Exception as e:
-            print(f"Error with OpenAI: {e}")
+            logger.error(f"Error generating response with OpenAI: {e}", exc_info=True)
             return ""
 
     def generate_response(self, prompt: str, system_prompt: Optional[str] = None, personality_strength: Optional[float] = 0.5) -> str:

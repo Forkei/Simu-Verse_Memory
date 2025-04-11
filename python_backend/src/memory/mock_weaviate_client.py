@@ -2,6 +2,12 @@ import uuid
 import logging
 from typing import Dict, List, Any, Optional
 import datetime
+import math # Added for scan distance calculation
+
+# Setup logging
+from ..utils.logging import setup_logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 class MockWeaviateClient:
     """
@@ -17,8 +23,8 @@ class MockWeaviateClient:
             api_key: API key (ignored in mock)
         """
         self.collections = {}
-        logging.info("Initialized MockWeaviateClient")
-    
+        logger.info("Initialized MockWeaviateClient")
+
     def set_llm_manager(self, llm_manager) -> None:
         """Mock implementation of set_llm_manager."""
         pass
@@ -32,65 +38,69 @@ class MockWeaviateClient:
         """
         if collection_name not in self.collections:
             self.collections[collection_name] = {}
-            logging.info(f"Created mock collection: {collection_name}")
-    
-    def add_object(self, collection_name: str, properties: Dict[str, Any], vector_field: str = "summary") -> str:
+            logger.info(f"Created mock collection: {collection_name}")
+
+    def add_object(self, collection_name: str, properties: Dict[str, Any], uuid: Optional[str] = None, vector: Optional[List[float]] = None) -> str:
         """
         Add an object to a collection.
         
         Args:
             collection_name: Name of the collection
             properties: Properties of the object
-            vector_field: Field to use for vectorization (ignored in mock)
-            
+            uuid: Optional UUID for the object.
+            vector: Optional pre-computed vector (ignored in mock).
+
         Returns:
-            ID of the created object
+            ID of the created object (as string)
         """
         # Create collection if it doesn't exist
         self.create_collection_if_not_exists(collection_name)
-        
+
         # Generate UUID if not provided
-        obj_id = properties.get("id", str(uuid.uuid4()))
-        
+        obj_uuid_str = str(uuid) if uuid else str(uuid.uuid4())
+        properties['id'] = obj_uuid_str # Ensure ID is in properties for consistency
+
         # Store the object
-        self.collections[collection_name][obj_id] = properties
-        logging.info(f"Added object to mock collection {collection_name} with ID {obj_id}")
-        
-        return obj_id
-    
+        self.collections[collection_name][obj_uuid_str] = properties
+        logger.info(f"Added object to mock collection {collection_name} with ID {obj_uuid_str}")
+
+        return obj_uuid_str
     def get_object(self, collection_name: str, object_id: str) -> Optional[Dict[str, Any]]:
         """
         Get an object by ID.
         
         Args:
             collection_name: Name of the collection
-            object_id: ID of the object
-            
+            object_id: ID of the object (string or UUID)
+
         Returns:
             The object or None if not found
         """
-        if collection_name not in self.collections or object_id not in self.collections[collection_name]:
+        obj_id_str = str(object_id)
+        if collection_name not in self.collections or obj_id_str not in self.collections[collection_name]:
+            logger.warning(f"Object {obj_id_str} not found in mock collection {collection_name}")
             return None
-        
-        return self.collections[collection_name][object_id]
-    
+
+        return self.collections[collection_name][obj_id_str]
     def delete_object(self, collection_name: str, object_id: str) -> bool:
         """
         Delete an object by ID.
         
         Args:
             collection_name: Name of the collection
-            object_id: ID of the object
-            
+            object_id: ID of the object (string or UUID)
+
         Returns:
             True if successful, False otherwise
         """
-        if collection_name not in self.collections or object_id not in self.collections[collection_name]:
+        obj_id_str = str(object_id)
+        if collection_name not in self.collections or obj_id_str not in self.collections[collection_name]:
+            logger.warning(f"Attempted to delete non-existent object {obj_id_str} from mock collection {collection_name}")
             return False
-        
-        del self.collections[collection_name][object_id]
+
+        del self.collections[collection_name][obj_id_str]
+        logger.info(f"Deleted object {obj_id_str} from mock collection {collection_name}")
         return True
-    
     def _filter_objects(self, objects: Dict[str, Dict[str, Any]], filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Filter objects based on filter criteria.
@@ -152,10 +162,10 @@ class MockWeaviateClient:
             summary = obj.get("summary", "")
             if query.lower() in summary.lower():
                 results.append(obj)
-        
+
         # Apply filters
         results = self._filter_objects({obj["id"]: obj for obj in results}, filters)
-        
+
         # Sort by recency (newest first) as a proxy for relevance
         results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         
@@ -191,10 +201,10 @@ class MockWeaviateClient:
                 if keyword in summary or any(keyword in k for k in obj_keywords):
                     results.append(obj)
                     break
-        
+
         # Apply filters
         results = self._filter_objects({obj["id"]: obj for obj in results}, filters)
-        
+
         # Sort by importance (highest first)
         results.sort(key=lambda x: x.get("importance", 0), reverse=True)
         
@@ -218,13 +228,13 @@ class MockWeaviateClient:
         # Combine results from semantic and keyword search
         semantic_results = self.semantic_search(collection_name, query, filters, limit=limit*2)
         keyword_results = self.keyword_search(collection_name, keyword_query, filters, limit=limit*2)
-        
+
         # Combine and deduplicate
         combined_results = {}
         for obj in semantic_results + keyword_results:
             if obj["id"] not in combined_results:
                 combined_results[obj["id"]] = obj
-        
+
         # Sort by a combination of recency and importance
         results = list(combined_results.values())
         

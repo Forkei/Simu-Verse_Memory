@@ -1,9 +1,15 @@
 import os
 import json
-import yaml # Added
+import yaml
 import datetime
 import logging
 from typing import Dict, List, Optional, Any, Union
+
+# Setup logging
+from ..utils.logging import setup_logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
 from ..llm.llm_manager import LLMManager
 from ..memory.weaviate_client import WeaviateClient
 from ..memory.mock_weaviate_client import MockWeaviateClient
@@ -27,11 +33,11 @@ class AgentManager:
         
         # If no Weaviate client is provided, use the mock implementation
         if weaviate_client is None:
-            logging.warning("No Weaviate client provided, using mock implementation")
+            logger.warning("No Weaviate client provided, using mock implementation")
             self.weaviate_client = MockWeaviateClient("mock://localhost")
         else:
             self.weaviate_client = weaviate_client
-            
+
         self.agents: Dict[str, Agent] = {}
         self.subconscious_agents: Dict[str, SubconsciousAgent] = {}
         self.config = self._load_config()
@@ -45,10 +51,10 @@ class AgentManager:
             with open(config_path, 'r') as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            logging.error(f"Configuration file not found at {config_path}")
+            logger.error(f"Configuration file not found at {config_path}")
             return {"paths": {}} # Return default empty paths
         except yaml.YAMLError as e:
-            logging.error(f"Error parsing configuration file {config_path}: {e}")
+            logger.error(f"Error parsing configuration file {config_path}: {e}")
             return {"paths": {}} # Return default empty paths
 
     def _get_config_path(self, key: str, default: str) -> str:
@@ -64,10 +70,10 @@ class AgentManager:
             with open(tools_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
-            logging.error(f"Tools configuration file not found at {tools_path}")
+            logger.error(f"Tools configuration file not found at {tools_path}")
             return {}
         except json.JSONDecodeError as e:
-            logging.error(f"Error decoding JSON from {tools_path}: {e}")
+            logger.error(f"Error decoding JSON from {tools_path}: {e}")
             return {}
 
     def _load_memory_categories(self) -> Dict[str, Any]:
@@ -77,10 +83,10 @@ class AgentManager:
             with open(categories_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
-            logging.error(f"Memory categories file not found at {categories_path}")
+            logger.error(f"Memory categories file not found at {categories_path}")
             return {"categories": [], "importance_scale": {}} # Provide default structure
         except json.JSONDecodeError as e:
-            logging.error(f"Error decoding JSON from {categories_path}: {e}")
+            logger.error(f"Error decoding JSON from {categories_path}: {e}")
             return {"categories": [], "importance_scale": {}} # Provide default structure
 
     def _load_agent_prompt(self, agent_name: str) -> str:
@@ -91,7 +97,7 @@ class AgentManager:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
         except FileNotFoundError:
-            logging.warning(f"Profile file not found for agent '{agent_name}' at {prompt_path}. Using template.")
+            logger.warning(f"Profile file not found for agent '{agent_name}' at {prompt_path}. Using template.")
             # If specific agent prompt doesn't exist, use template
             templates_dir = self._get_config_path("prompt_templates", "agents/templates/")
             template_path = os.path.join(templates_dir, "agent_system_prompt_template.txt")
@@ -101,7 +107,7 @@ class AgentManager:
                 # Replace placeholder with agent name (personality etc. are replaced later)
                 return template.replace("{{AGENT_NAME}}", agent_name)
             except FileNotFoundError:
-                logging.error(f"Default agent prompt template not found at {template_path}")
+                logger.error(f"Default agent prompt template not found at {template_path}")
                 return f"You are {agent_name}. Default prompt template missing." # Basic fallback
 
     def create_agent(self, agent_name: str, personality: str, available_tools: List[str],
@@ -155,9 +161,9 @@ class AgentManager:
         # Store both agents
         self.agents[agent_name] = agent
         self.subconscious_agents[agent_name] = subconscious
-        
+        logger.info(f"Created agent '{agent_name}' with subconscious.")
         return agent
-    
+
     def _format_tools_for_prompt(self, tools: Dict[str, Any]) -> str:
         """Format tools information for inclusion in system prompt."""
         tools_text = ""
@@ -184,25 +190,29 @@ class AgentManager:
         Args:
             agent_name: Name of the agent to process
             input_message: Optional input message to the agent
-            
+
         Returns:
             Dictionary containing the agent's response and actions
         """
         if agent_name not in self.agents:
+            logger.error(f"Attempted to process turn for non-existent agent: {agent_name}")
             raise ValueError(f"Agent {agent_name} does not exist")
-        
+
+        logger.debug(f"Processing turn for agent: {agent_name}")
         agent = self.agents[agent_name]
         subconscious = self.subconscious_agents[agent_name]
-        
+
         # Update current datetime in agent's system prompt
         current_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         updated_prompt = agent.system_prompt.replace("{{CURRENT_DATETIME}}", current_datetime)
         
         # Get relevant memories from subconscious
+        logger.debug(f"Retrieving memories for {agent_name}...")
         memories = subconscious.retrieve_relevant_memories(agent.conversation_history, agent.location)
         memory_context = self._format_memories_for_prompt(memories)
         updated_prompt = updated_prompt.replace("{{MEMORY_CONTEXT}}", memory_context)
-        
+        logger.debug(f"Memory context for {agent_name}: {memory_context[:100]}...") # Log truncated context
+
         # Update nearby information (in a real implementation, this would come from the environment)
         # For now, we'll use placeholders
         updated_prompt = updated_prompt.replace("{{NEARBY_AGENTS}}", "None")
@@ -210,27 +220,36 @@ class AgentManager:
         
         # Generate agent response
         if input_message:
+            logger.debug(f"Adding user message to {agent_name}'s history: {input_message[:50]}...")
             agent.add_to_conversation("user", input_message)
-        
+
+        logger.debug(f"Generating response for {agent_name}...")
         response = agent.generate_response(updated_prompt)
-        
+        logger.debug(f"Raw response from {agent_name}: {response[:100]}...")
+
         # Process the response to extract reflection and tool use
         processed_response = self._process_agent_response(response)
-        
         # Create a new memory from this interaction
         if input_message or len(agent.conversation_history) > 0:
-            subconscious.create_memory_from_conversation(
-                agent.conversation_history[-10:] if len(agent.conversation_history) >= 10 else agent.conversation_history,
-                agent.location
-            )
-        
+            logger.debug(f"Creating memory for {agent_name} based on recent interaction.")
+            try:
+                subconscious.create_memory_from_conversation(
+                    agent.conversation_history[-10:] if len(agent.conversation_history) >= 10 else agent.conversation_history,
+                    agent.location
+                )
+                logger.debug(f"Memory created successfully for {agent_name}.")
+            except Exception as e:
+                logger.error(f"Failed to create memory for {agent_name}: {e}", exc_info=True)
+
+        logger.debug(f"Processed response for {agent_name}: {processed_response}")
         return processed_response
     
     def _format_memories_for_prompt(self, memories: List[Dict[str, Any]]) -> str:
         """Format retrieved memories for inclusion in the agent's prompt."""
         if not memories:
             return "No relevant memories available."
-        
+
+        logger.debug(f"Formatting {len(memories)} memories for prompt.")
         memory_text = "Relevant memories:\n\n"
         for i, memory in enumerate(memories, 1):
             memory_text += f"Memory {i}:\n"
@@ -276,10 +295,10 @@ class AgentManager:
                 start_idx = tool_section.find("<tool_name>") + len("<tool_name>")
                 end_idx = tool_section.find("</tool_name>")
                 result["tool_use"]["name"] = tool_section[start_idx:end_idx].strip()
-            
             # Extract parameters
             result["tool_use"]["parameters"] = {}
             param_sections = tool_section.split("<parameter ")
+            logger.debug(f"Found {len(param_sections) - 1} parameter sections.")
             for section in param_sections[1:]:  # Skip the first empty split
                 if ">" in section and "</parameter>" in section:
                     # Extract parameter name
@@ -291,11 +310,12 @@ class AgentManager:
                     value_start = section.find(">") + 1
                     value_end = section.find("</parameter>")
                     param_value = section[value_start:value_end].strip()
-                    
+
                     result["tool_use"]["parameters"][param_name] = param_value
-        
+                    logger.debug(f"Parsed parameter: {param_name} = {param_value}")
+
         return result
-    
+
     def get_all_agents(self) -> List[str]:
         """Get a list of all agent names."""
         return list(self.agents.keys())
@@ -305,5 +325,7 @@ class AgentManager:
         if agent_name in self.agents:
             del self.agents[agent_name]
             del self.subconscious_agents[agent_name]
+            logger.info(f"Deleted agent: {agent_name}")
             return True
+        logger.warning(f"Attempted to delete non-existent agent: {agent_name}")
         return False

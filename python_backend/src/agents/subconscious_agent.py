@@ -2,8 +2,15 @@ import datetime
 import uuid
 import logging
 import os
-import yaml # Added
+import yaml
 from typing import Dict, List, Any, Optional, Union
+import xml.etree.ElementTree as ET
+
+# Setup logging
+from ..utils.logging import setup_logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
 from ..llm.llm_manager import LLMManager
 from ..memory.weaviate_client import WeaviateClient
 from ..memory.mock_weaviate_client import MockWeaviateClient
@@ -158,11 +165,16 @@ class SubconsciousAgent:
         
         # Generate memory using LLM
         prompt = f"Create a memory from this conversation at location '{location}':\n\n{conversation_text}"
+        logger.debug(f"Generating memory creation prompt for {self.agent_name}")
         memory_xml = self.llm_manager.generate_response(prompt, self.memory_creation_prompt)
-        
+        logger.debug(f"Received memory XML from LLM for {self.agent_name}: {memory_xml[:100]}...")
+
         # Parse the XML response
         memory = self._parse_memory_xml(memory_xml)
-        
+        if not memory:
+             logger.error(f"Failed to parse memory XML for {self.agent_name}. XML: {memory_xml}")
+             return {} # Return empty dict if parsing failed
+
         # Add timestamp and location
         memory["timestamp"] = datetime.datetime.now().isoformat()
         memory["location"] = location
@@ -172,13 +184,13 @@ class SubconsciousAgent:
         # Store in Weaviate
         self.weaviate_client.add_object(
             collection_name=self.collection_name,
-            properties=memory,
-            vector_field="summary"  # Use summary for vector embedding
+            properties=memory
+            # vector_field="summary" # No longer needed with Weaviate v4 client
         )
-        
+        logger.info(f"Memory created and stored for {self.agent_name}. ID: {memory['id']}")
         return memory
-    
-    def _parse_memory_xml(self, xml_response: str) -> Dict[str, Any]:
+
+    def _parse_memory_xml(self, xml_response: str) -> Optional[Dict[str, Any]]:
         """
         Parse the XML response from the LLM into a memory object.
         
@@ -186,35 +198,63 @@ class SubconsciousAgent:
             xml_response: XML-formatted memory from LLM
             
         Returns:
-            Dictionary representation of the memory
+            Dictionary representation of the memory, or None if parsing fails
         """
-        # This is a simplified parser - in a real implementation, use a proper XML parser
-        memory = {}
-        
-        for field in ["summary", "category", "keywords", "critical_information", "importance"]:
-            start_tag = f"<{field}>"
-            end_tag = f"</{field}>"
-            
-            if start_tag in xml_response and end_tag in xml_response:
-                start_idx = xml_response.find(start_tag) + len(start_tag)
-                end_idx = xml_response.find(end_tag)
-                value = xml_response[start_idx:end_idx].strip()
-                
-                # Convert importance to integer
+        try:
+            # Ensure the response is wrapped in a root element for valid XML parsing
+            if not xml_response.strip().startswith('<'):
+                 # Attempt to find the first < and last > if response has extra text
+                 start = xml_response.find('<memory>')
+                 end = xml_response.rfind('</memory>')
+                 if start != -1 and end != -1:
+                     xml_response = xml_response[start:end+len('</memory>')]
+                 else: # Give up if no memory tags found
+                     logger.warning(f"Invalid XML structure for memory parsing: {xml_response}")
+                     return None
+
+            # Add a dummy root if necessary (ElementTree needs a single root)
+            if not xml_response.strip().startswith('<root>'):
+                 xml_response = f"<root>{xml_response}</root>"
+
+            root = ET.fromstring(xml_response)
+            memory_element = root.find('memory')
+
+            if memory_element is None:
+                 logger.warning(f"Could not find <memory> tag in response: {xml_response}")
+                 return None
+
+            memory = {}
+            for child in memory_element:
+                field = child.tag
+                value = child.text.strip() if child.text else ""
+
                 if field == "importance":
                     try:
-                        value = int(value)
+                        memory[field] = int(value)
                     except ValueError:
-                        value = 5  # Default importance
-                
-                memory[field] = value
-        
-        # Convert keywords from comma-separated string to list
-        if "keywords" in memory:
-            memory["keywords"] = [k.strip() for k in memory["keywords"].split(",")]
-        
-        return memory
-    
+                        logger.warning(f"Invalid importance value '{value}', using default 5.")
+                        memory[field] = 5
+                elif field == "keywords":
+                    memory[field] = [k.strip() for k in value.split(",") if k.strip()]
+                else:
+                    memory[field] = value
+
+            # Basic validation
+            if not all(k in memory for k in ["summary", "category", "keywords", "critical_information", "importance"]):
+                 logger.warning(f"Parsed memory XML is missing required fields: {memory}")
+                 # Allow partial memory if summary exists
+                 if "summary" not in memory:
+                     return None
+
+            return memory
+        except ET.ParseError as e:
+            logger.error(f"XML parsing error for memory: {e}\nXML: {xml_response}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error parsing memory XML: {e}\nXML: {xml_response}", exc_info=True)
+            return None
+
+
     def retrieve_relevant_memories(self, conversation: List[Dict[str, str]], location: str) -> List[Dict[str, Any]]:
         """
         Retrieve relevant memories based on current context.
@@ -238,11 +278,16 @@ class SubconsciousAgent:
         
         # Generate memory queries using LLM
         prompt = f"Create memory queries based on this conversation at location '{location}':\n\n{conversation_text}"
+        logger.debug(f"Generating memory retrieval prompt for {self.agent_name}")
         queries_xml = self.llm_manager.generate_response(prompt, self.memory_retrieval_prompt)
-        
+        logger.debug(f"Received memory queries XML from LLM for {self.agent_name}: {queries_xml[:100]}...")
+
         # Parse the XML response to get queries
         queries = self._parse_memory_queries_xml(queries_xml)
-        
+        if not queries:
+             logger.warning(f"Failed to parse memory queries XML for {self.agent_name}. XML: {queries_xml}")
+             return [] # Return empty list if parsing failed
+
         # Execute each query and collect results
         all_memories = []
         for query in queries:
@@ -259,8 +304,9 @@ class SubconsciousAgent:
         
         # Sort by importance (descending) and return top results
         unique_memories.sort(key=lambda x: x.get("importance", 0), reverse=True)
+        logger.info(f"Retrieved {len(unique_memories)} unique memories for {self.agent_name}.")
         return unique_memories[:9]  # Return up to 9 memories (3 per query)
-    
+
     def _parse_memory_queries_xml(self, xml_response: str) -> List[Dict[str, Any]]:
         """
         Parse the XML response from the LLM into memory queries.
@@ -271,70 +317,58 @@ class SubconsciousAgent:
         Returns:
             List of query dictionaries
         """
-        # This is a simplified parser - in a real implementation, use a proper XML parser
-        queries = []
-        
-        # Split into individual queries
-        if "<query>" in xml_response and "</query>" in xml_response:
-            query_sections = xml_response.split("<query>")[1:]
-            
-            for section in query_sections:
-                if "</query>" in section:
-                    query_text = section.split("</query>")[0].strip()
-                    query = {}
-                    
-                    # Extract search type
-                    if "<search_type>" in query_text and "</search_type>" in query_text:
-                        start_idx = query_text.find("<search_type>") + len("<search_type>")
-                        end_idx = query_text.find("</search_type>")
-                        query["search_type"] = query_text[start_idx:end_idx].strip()
-                    
-                    # Extract keywords
-                    if "<keywords>" in query_text and "</keywords>" in query_text:
-                        start_idx = query_text.find("<keywords>") + len("<keywords>")
-                        end_idx = query_text.find("</keywords>")
-                        keywords_str = query_text[start_idx:end_idx].strip()
-                        query["keywords"] = [k.strip() for k in keywords_str.split(",")]
-                    
-                    # Extract query text
-                    if "<query_text>" in query_text and "</query_text>" in query_text:
-                        start_idx = query_text.find("<query_text>") + len("<query_text>")
-                        end_idx = query_text.find("</query_text>")
-                        query["query_text"] = query_text[start_idx:end_idx].strip()
-                    
-                    # Extract filters
-                    query["filters"] = {}
-                    if "<filters>" in query_text and "</filters>" in query_text:
-                        filters_text = query_text.split("<filters>")[1].split("</filters>")[0].strip()
-                        
-                        # Category filter
-                        if "<category>" in filters_text and "</category>" in filters_text:
-                            start_idx = filters_text.find("<category>") + len("<category>")
-                            end_idx = filters_text.find("</category>")
-                            query["filters"]["category"] = filters_text[start_idx:end_idx].strip()
-                        
-                        # Min importance filter
-                        if "<min_importance>" in filters_text and "</min_importance>" in filters_text:
-                            start_idx = filters_text.find("<min_importance>") + len("<min_importance>")
-                            end_idx = filters_text.find("</min_importance>")
-                            try:
-                                query["filters"]["min_importance"] = int(filters_text[start_idx:end_idx].strip())
-                            except ValueError:
-                                pass
-                        
-                        # Max importance filter
-                        if "<max_importance>" in filters_text and "</max_importance>" in filters_text:
-                            start_idx = filters_text.find("<max_importance>") + len("<max_importance>")
-                            end_idx = filters_text.find("</max_importance>")
-                            try:
-                                query["filters"]["max_importance"] = int(filters_text[start_idx:end_idx].strip())
-                            except ValueError:
-                                pass
-                    
-                    queries.append(query)
-        
-        return queries[:3]  # Limit to 3 queries
-    
+        try:
+            # Ensure the response is wrapped in a root element for valid XML parsing
+            if not xml_response.strip().startswith('<'):
+                 # Attempt to find the first < and last > if response has extra text
+                 start = xml_response.find('<memory_queries>')
+                 end = xml_response.rfind('</memory_queries>')
+                 if start != -1 and end != -1:
+                     xml_response = xml_response[start:end+len('</memory_queries>')]
+                 else: # Give up if no root tag found
+                     logger.warning(f"Invalid XML structure for query parsing: {xml_response}")
+                     return []
+
+            # Add a dummy root if necessary (ElementTree needs a single root)
+            if not xml_response.strip().startswith('<root>'):
+                 xml_response = f"<root>{xml_response}</root>"
+
+            root = ET.fromstring(xml_response)
+            queries = []
+            for query_element in root.findall('.//query'):
+                query = {}
+                filters = {}
+                for child in query_element:
+                    if child.tag == "filters":
+                        for filter_child in child:
+                            field = filter_child.tag
+                            value = filter_child.text.strip() if filter_child.text else ""
+                            if field in ["min_importance", "max_importance"]:
+                                try:
+                                    filters[field] = int(value)
+                                except ValueError:
+                                    logger.warning(f"Invalid importance filter value '{value}' in query XML.")
+                            else:
+                                filters[field] = value
+                    elif child.tag == "keywords":
+                         query[child.tag] = [k.strip() for k in (child.text or "").split(",") if k.strip()]
+                    else:
+                        query[child.tag] = child.text.strip() if child.text else ""
+
+                if filters:
+                    query["filters"] = filters
+                queries.append(query)
+
+            logger.debug(f"Parsed {len(queries)} memory queries.")
+            return queries[:3] # Limit to 3 queries
+
+        except ET.ParseError as e:
+            logger.error(f"XML parsing error for memory queries: {e}\nXML: {xml_response}", exc_info=True)
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error parsing memory queries XML: {e}\nXML: {xml_response}", exc_info=True)
+            return []
+
     def _execute_memory_query(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Execute a memory query against the Weaviate database.
@@ -370,7 +404,8 @@ class SubconsciousAgent:
                 "operator": "LessThanEqual",
                 "valueNumber": filters["max_importance"]
             })
-        
+        logger.debug(f"Executing memory query for {self.agent_name}: Type={search_type}, Filters={filters}")
+
         # Execute the appropriate search based on search type
         if search_type == "keyword":
             # Keyword search
@@ -380,7 +415,8 @@ class SubconsciousAgent:
             
             # Join keywords with OR for broader search
             keyword_query = " OR ".join(keywords)
-            
+            logger.debug(f"Keyword query: {keyword_query}")
+
             return self.weaviate_client.keyword_search(
                 collection_name=self.collection_name,
                 query=keyword_query,
@@ -392,8 +428,10 @@ class SubconsciousAgent:
             # Semantic search
             query_text = query.get("query_text", "")
             if not query_text:
+                logger.warning("Semantic search requested but no query text provided.")
                 return []
-            
+            logger.debug(f"Semantic query: {query_text}")
+
             return self.weaviate_client.semantic_search(
                 collection_name=self.collection_name,
                 query=query_text,
@@ -408,30 +446,33 @@ class SubconsciousAgent:
             
             if not query_text and not keywords:
                 return []
-            
+
             if query_text and keywords:
                 # If we have both, do a hybrid search
                 keyword_query = " OR ".join(keywords)
-                
+                logger.debug(f"Hybrid query: Semantic='{query_text}', Keywords='{keyword_query}'")
+
                 return self.weaviate_client.hybrid_search(
                     collection_name=self.collection_name,
                     query=query_text,
-                    keyword_query=keyword_query,
+                    keyword_query=keyword_query, # Note: keyword_query might not be used in v4 hybrid
                     filters=weaviate_filter,
                     limit=3
                 )
             elif query_text:
                 # If we only have query text, do semantic search
+                logger.debug(f"Hybrid query (semantic only): '{query_text}'")
                 return self.weaviate_client.semantic_search(
                     collection_name=self.collection_name,
                     query=query_text,
                     filters=weaviate_filter,
                     limit=3
                 )
-            else:
+            else: # Only keywords
                 # If we only have keywords, do keyword search
                 keyword_query = " OR ".join(keywords)
-                
+                logger.debug(f"Hybrid query (keyword only): '{keyword_query}'")
+
                 return self.weaviate_client.keyword_search(
                     collection_name=self.collection_name,
                     query=keyword_query,

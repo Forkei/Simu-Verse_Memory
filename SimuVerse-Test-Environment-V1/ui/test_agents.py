@@ -27,15 +27,19 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 hf_api_key = os.getenv("HUGGINGFACE_API_KEY")
 claude_api_key = os.getenv("CLAUDE_API_KEY")
 if not openai_api_key or not claude_api_key:
-    st.error("OpenAI or Claude API key not found in environment variables.")
+    # st.error("OpenAI or Claude API key not found in environment variables.")
+    logger.critical("OpenAI or Claude API key not found in environment variables.")
     st.stop()
 
 # Instantiate Managers (using backend components)
+logger.info("Instantiating LLMManager...")
 llm_manager = LLMManager() # Assumes API keys are loaded via dotenv in LLMManager itself
 # Use MockWeaviateClient for this test script as Weaviate might not be running
 from memory.mock_weaviate_client import MockWeaviateClient
+logger.info("Using MockWeaviateClient.")
 weaviate_client = MockWeaviateClient(url="mock://localhost") # Mock client doesn't need a real URL
 
+logger.info("Instantiating BackendAgentManager...")
 backend_agent_manager = BackendAgentManager(llm_manager=llm_manager, weaviate_client=weaviate_client)
 
 # Load Tools (needed for agent creation)
@@ -44,8 +48,10 @@ try:
     with open(tools_path, 'r') as f:
         tools_config = json.load(f)
     all_tool_names = list(tools_config.keys())
+    logger.info(f"Loaded tools: {all_tool_names}")
 except Exception as e:
-    st.error(f"Failed to load tools from {tools_path}: {e}")
+    # st.error(f"Failed to load tools from {tools_path}: {e}")
+    logger.critical(f"Failed to load tools from {tools_path}: {e}", exc_info=True)
     st.stop()
 
 st.title("Multi-Agent Conversation Test")
@@ -62,6 +68,8 @@ james = backend_agent_manager.create_agent(
     available_tools=all_tool_names,
     location="test_environment"
 )
+logger.info(f"Created agent: {jade.name}")
+logger.info(f"Created agent: {james.name}")
 
 jade_personality = (
     "You are Jade, an engaging conversation expert who is a 20 yr old female."
@@ -94,12 +102,19 @@ if st.button("Start Conversation") and initial_message:
         
         for i in range(num_rounds * 2): # Each round has two turns
             target_agent_name = current_speaker
-            
-            st.write(f"Processing turn for: {target_agent_name}")
-            
+
+            # st.write(f"Processing turn for: {target_agent_name}")
+            logger.info(f"Processing turn {i+1} for: {target_agent_name}")
+
             # Process turn using backend manager
-            processed_response = backend_agent_manager.process_agent_turn(target_agent_name, message_to_process)
-            
+            try:
+                processed_response = backend_agent_manager.process_agent_turn(target_agent_name, message_to_process)
+                logger.debug(f"Response received from {target_agent_name}")
+            except Exception as turn_error:
+                logger.error(f"Error processing turn for {target_agent_name}: {turn_error}", exc_info=True)
+                st.error(f"Error processing turn for {target_agent_name}: {turn_error}")
+                break # Stop the conversation on error
+
             # Extract display message (simplified for this test)
             reflection = processed_response.get("reflection", {})
             display_response = reflection.get("description", "...") # Or use other fields
