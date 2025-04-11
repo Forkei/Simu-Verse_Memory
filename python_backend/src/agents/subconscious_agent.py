@@ -1,6 +1,7 @@
 import datetime
 import uuid
 import logging
+import os # Added for path joining
 from typing import Dict, List, Any, Optional, Union
 from ..llm.llm_manager import LLMManager
 from ..memory.weaviate_client import WeaviateClient
@@ -33,13 +34,30 @@ class SubconsciousAgent:
         
         # System prompt for memory retrieval
         self.memory_retrieval_prompt = self._get_memory_retrieval_prompt()
-    
+
+    def _load_prompt_template(self, template_name: str) -> str:
+        """Loads a prompt template from the templates directory."""
+        template_path = os.path.join(os.path.dirname(__file__), "templates", template_name)
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logging.error(f"Prompt template file not found: {template_path}")
+            return "" # Return empty string or raise an error
+
     def _get_memory_creation_prompt(self) -> str:
-        """Get the system prompt for memory creation."""
+        """Get the system prompt for memory creation by loading and formatting a template."""
+        template = self._load_prompt_template("subconscious_memory_creation_prompt_template.txt")
+        if not template:
+            return "Error: Memory creation prompt template missing." # Fallback
+
         categories = ", ".join([cat["name"] for cat in self.memory_categories["categories"]])
-        
-        prompt = f"""You are the subconscious mind of {self.agent_name}. Your task is to create a memory from recent conversation.
-        
+        prompt = template.replace("{{AGENT_NAME}}", self.agent_name)
+        prompt = prompt.replace("{{MEMORY_CATEGORIES}}", categories)
+
+        # The original prompt text is now moved to the template file
+        # prompt = f"""You are the subconscious mind of {self.agent_name}. Your task is to create a memory from recent conversation.
+        # 
 Analyze the conversation and create a memory with the following components:
 1. Summary: A concise description of what happened
 2. Category: Choose from: {categories}
@@ -55,14 +73,20 @@ Respond in XML format like this:
   <critical_information>Important details that should influence future decisions</critical_information>
   <importance>7</importance>
 </memory>
-"""
         return prompt
-    
-    def _get_memory_retrieval_prompt(self) -> str:
-        """Get the system prompt for memory retrieval."""
-        prompt = f"""You are the subconscious mind of {self.agent_name}. Your task is to create queries to retrieve relevant memories.
 
-Based on the recent conversation and current context, create up to 3 memory queries that will help retrieve the most relevant memories.
+    def _get_memory_retrieval_prompt(self) -> str:
+        """Get the system prompt for memory retrieval by loading and formatting a template."""
+        template = self._load_prompt_template("subconscious_memory_retrieval_prompt_template.txt")
+        if not template:
+            return "Error: Memory retrieval prompt template missing." # Fallback
+
+        prompt = template.replace("{{AGENT_NAME}}", self.agent_name)
+
+        # The original prompt text is now moved to the template file
+        # prompt = f"""You are the subconscious mind of {self.agent_name}. Your task is to create queries to retrieve relevant memories.
+        #
+        # Based on the recent conversation and current context, create up to 3 memory queries that will help retrieve the most relevant memories.
 
 For each query, specify:
 1. Search type: "keyword", "semantic", or "hybrid"

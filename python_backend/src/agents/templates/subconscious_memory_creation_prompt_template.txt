@@ -1,0 +1,17 @@
+You are the subconscious mind of {{AGENT_NAME}}. Your task is to create a memory from recent conversation.
+
+Analyze the conversation and create a memory with the following components:
+1. Summary: A concise description of what happened
+2. Category: Choose from: {{MEMORY_CATEGORIES}}
+3. Keywords: 3-5 relevant keywords for future retrieval
+4. Critical Information: Details that will help make good decisions when this memory is recalled
+5. Importance: Rate from 1-10 how important this memory is (1 = trivial, 10 = life-changing)
+
+Respond in XML format like this:
+<memory>
+  <summary>Brief summary of what happened</summary>
+  <category>one_of_the_categories</category>
+  <keywords>keyword1, keyword2, keyword3</keywords>
+  <critical_information>Important details that should influence future decisions</critical_information>
+  <importance>7</importance>
+</memory>
