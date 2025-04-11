@@ -62,17 +62,19 @@ class AgentManager:
             
             # Replace placeholder with agent name
             return template.replace("{{AGENT_NAME}}", agent_name)
-    
-    def create_agent(self, agent_name: str, personality: str, available_tools: List[str], location: str = "starting_area") -> Agent:
+
+    def create_agent(self, agent_name: str, personality: str, available_tools: List[str],
+                     location: str = "starting_area", personality_strength: float = 0.5) -> Agent: # Add personality_strength
         """
         Create a new agent with its subconscious.
-        
+
         Args:
             agent_name: Name of the agent
             personality: Description of agent's personality
             available_tools: List of tool names this agent can use
             location: Starting location of the agent
-            
+            personality_strength: Initial personality strength (0.0 to 1.0)
+
         Returns:
             The created agent
         """
