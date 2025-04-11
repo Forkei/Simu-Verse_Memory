@@ -1,0 +1,9 @@
+# Configuration for file paths relative to the src directory
+paths:
+  agent_profiles: "agents/profiles/"
+  prompt_templates: "agents/templates/"
+  tools_config: "config/tools.json"
+  memory_categories_config: "config/memory_categories.json"
+
+# Other potential configurations can be added here later
+# Example: Default LLM settings, simulation parameters, etc.

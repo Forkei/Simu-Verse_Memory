@@ -1,5 +1,6 @@
 import os
 import json
+import yaml # Added
 import datetime
 import logging
 from typing import Dict, List, Optional, Any, Union
@@ -33,35 +34,75 @@ class AgentManager:
             
         self.agents: Dict[str, Agent] = {}
         self.subconscious_agents: Dict[str, SubconsciousAgent] = {}
+        self.config = self._load_config()
         self.tools = self._load_tools()
         self.memory_categories = self._load_memory_categories()
-        
-    def _load_tools(self) -> Dict[str, Any]:
-        """Load tools configuration from JSON file."""
-        tools_path = os.path.join(os.path.dirname(__file__), "..", "config", "tools.json")
-        with open(tools_path, 'r') as f:
-            return json.load(f)
-    
-    def _load_memory_categories(self) -> Dict[str, Any]:
-        """Load memory categories configuration from JSON file."""
-        categories_path = os.path.join(os.path.dirname(__file__), "..", "config", "memory_categories.json")
-        with open(categories_path, 'r') as f:
-            return json.load(f)
-    
-    def _load_agent_prompt(self, agent_name: str) -> str:
-        """Load an agent's system prompt from its text file."""
-        prompt_path = os.path.join(os.path.dirname(__file__), "profiles", f"{agent_name}.txt")
+
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from config.yaml."""
+        config_path = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
         try:
-            with open(prompt_path, 'r') as f:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        except FileNotFoundError:
+            logging.error(f"Configuration file not found at {config_path}")
+            return {"paths": {}} # Return default empty paths
+        except yaml.YAMLError as e:
+            logging.error(f"Error parsing configuration file {config_path}: {e}")
+            return {"paths": {}} # Return default empty paths
+
+    def _get_config_path(self, key: str, default: str) -> str:
+        """Helper to get a path from config, relative to src dir."""
+        base_path = os.path.dirname(os.path.dirname(__file__)) # src directory
+        relative_path = self.config.get("paths", {}).get(key, default)
+        return os.path.join(base_path, relative_path)
+
+    def _load_tools(self) -> Dict[str, Any]:
+        """Load tools configuration from JSON file using path from config."""
+        tools_path = self._get_config_path("tools_config", "config/tools.json")
+        try:
+            with open(tools_path, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            logging.error(f"Tools configuration file not found at {tools_path}")
+            return {}
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from {tools_path}: {e}")
+            return {}
+
+    def _load_memory_categories(self) -> Dict[str, Any]:
+        """Load memory categories configuration from JSON file using path from config."""
+        categories_path = self._get_config_path("memory_categories_config", "config/memory_categories.json")
+        try:
+            with open(categories_path, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            logging.error(f"Memory categories file not found at {categories_path}")
+            return {"categories": [], "importance_scale": {}} # Provide default structure
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from {categories_path}: {e}")
+            return {"categories": [], "importance_scale": {}} # Provide default structure
+
+    def _load_agent_prompt(self, agent_name: str) -> str:
+        """Load an agent's system prompt from its profile file or template."""
+        profiles_dir = self._get_config_path("agent_profiles", "agents/profiles/")
+        prompt_path = os.path.join(profiles_dir, f"{agent_name}.txt")
+        try:
+            with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
         except FileNotFoundError:
+            logging.warning(f"Profile file not found for agent '{agent_name}' at {prompt_path}. Using template.")
             # If specific agent prompt doesn't exist, use template
-            template_path = os.path.join(os.path.dirname(__file__), "templates", "agent_system_prompt_template.txt")
-            with open(template_path, 'r') as f:
-                template = f.read()
-            
-            # Replace placeholder with agent name
-            return template.replace("{{AGENT_NAME}}", agent_name)
+            templates_dir = self._get_config_path("prompt_templates", "agents/templates/")
+            template_path = os.path.join(templates_dir, "agent_system_prompt_template.txt")
+            try:
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    template = f.read()
+                # Replace placeholder with agent name (personality etc. are replaced later)
+                return template.replace("{{AGENT_NAME}}", agent_name)
+            except FileNotFoundError:
+                logging.error(f"Default agent prompt template not found at {template_path}")
+                return f"You are {agent_name}. Default prompt template missing." # Basic fallback
 
     def create_agent(self, agent_name: str, personality: str, available_tools: List[str],
                      location: str = "starting_area", personality_strength: float = 0.5) -> Agent: # Add personality_strength

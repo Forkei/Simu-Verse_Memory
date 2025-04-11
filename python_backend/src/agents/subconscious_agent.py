@@ -1,7 +1,8 @@
 import datetime
 import uuid
 import logging
-import os # Added for path joining
+import os
+import yaml # Added
 from typing import Dict, List, Any, Optional, Union
 from ..llm.llm_manager import LLMManager
 from ..memory.weaviate_client import WeaviateClient
@@ -32,12 +33,40 @@ class SubconsciousAgent:
         # System prompt for memory creation
         self.memory_creation_prompt = self._get_memory_creation_prompt()
         
+        # Load config first
+        self.config = self._load_config()
+
+        # System prompt for memory creation
+        self.memory_creation_prompt = self._get_memory_creation_prompt()
+
         # System prompt for memory retrieval
         self.memory_retrieval_prompt = self._get_memory_retrieval_prompt()
 
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from config.yaml."""
+        # Go up two levels from subconscious_agent.py to src/, then to config/
+        base_path = os.path.dirname(os.path.dirname(__file__))
+        config_path = os.path.join(base_path, "config", "config.yaml")
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        except FileNotFoundError:
+            logging.error(f"Configuration file not found at {config_path}")
+            return {"paths": {}} # Return default empty paths
+        except yaml.YAMLError as e:
+            logging.error(f"Error parsing configuration file {config_path}: {e}")
+            return {"paths": {}} # Return default empty paths
+
+    def _get_config_path(self, key: str, default: str) -> str:
+        """Helper to get a path from config, relative to src dir."""
+        base_path = os.path.dirname(os.path.dirname(__file__)) # src directory
+        relative_path = self.config.get("paths", {}).get(key, default)
+        return os.path.join(base_path, relative_path)
+
     def _load_prompt_template(self, template_name: str) -> str:
-        """Loads a prompt template from the templates directory."""
-        template_path = os.path.join(os.path.dirname(__file__), "templates", template_name)
+        """Loads a prompt template from the templates directory using path from config."""
+        templates_dir = self._get_config_path("prompt_templates", "agents/templates/")
+        template_path = os.path.join(templates_dir, template_name)
         try:
             with open(template_path, 'r', encoding='utf-8') as f:
                 return f.read()
