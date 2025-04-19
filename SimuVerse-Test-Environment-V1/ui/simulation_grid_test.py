@@ -1232,30 +1232,26 @@ app.layout = html.Div([
                             ),
                             dbc.Col(
                                 html.Div([ # Wrap button and loading indicator
-                                    dbc.Button("Async Step", id="async-step-btn", n_clicks=0,
+                                    dbc.Button("Run Simulation Step", id="async-step-btn", n_clicks=0,
                                               className="simulation-btn w-100",
-                                              color="secondary"),
+                                              color="primary"), # Changed color
                                     dcc.Loading(id="loading-sim-step", type="default", children=html.Div(id="loading-sim-step-output"))
                                 ]),
-                                width=6
+                                width=12 # Make button full width
                             )
                         ], className="mb-3"),
                         html.Div([
                             dbc.Alert([
-                                html.I(className="fas fa-random me-2"),
-                                "Autonomous Movement: Agents will move to new locations after talking to the same person for 2-3 rounds.",
+                                html.I(className="fas fa-info-circle me-2"),
+                                html.Strong("Agent Actions: "),
+                                "Agents decide actions based on personality, memories, and current context. They respond in XML, including reflections and tool use.",
                                 html.Br(),
-                                html.Small([
-                                    html.Strong("Agent Tools: "),
-                                    "Agents can decide to move by including ",
-                                    html.Code("[MOVE]"),
-                                    " in their responses."
-                                ], className="mt-1 d-block")
-                            ], color="info", className="py-2 mt-2 mb-3"),
-                            
-                            # Movement statistics
+                                html.Small("Tools: move, scan, talk, think, interact, do_nothing.")
+                            ], color="info", className="py-2 mt-2 mb-3 small"),
+
+                            # Simulation Turn Counter
                             html.Div([
-                                html.H6("Simulation Status", className="mb-2 border-bottom pb-1"),
+                                html.H6("Simulation Info", className="mb-2 border-bottom pb-1"),
                                 html.Div(id="movement-stats", className="small")
                             ], className="mb-3"),
                             
@@ -1337,26 +1333,15 @@ app.layout = html.Div([
 
                 # Memory Display Panel
                 dbc.Card([
-                    dbc.CardHeader(html.H4("Retrieved Memories", className="text-center")),
+                    dbc.CardHeader(html.H4("Agent Details", className="text-center")),
                     dbc.CardBody(id="memory-display-panel", children=[
-                        html.P("Click on an agent node to see recently retrieved memories.", className="text-muted small")
+                        html.P("Click on an agent node to see details from their last turn.", className="text-muted small")
                     ], style={"maxHeight": "300px", "overflowY": "auto"})
                 ], className="mt-4 shadow-sm"),
 
-                # Status panel (Moved down)
-                dbc.Card([
-                    dbc.CardHeader(html.H4("Agent Status", className="text-center")),
-                    dbc.CardBody([
-                        html.P([
-                            html.I(className="fas fa-info-circle me-2"),
-                            "Click on a connection between agents to view their conversation below."
-                        ], className="text-muted")
-                    ])
-                ], className="shadow-sm")
             ], md=4)
         ])
-    ], fluid=True)
-# ]) # Removed extra closing bracket
+    ], fluid=True, className="p-3")
 
 
 # We'll modify our approach to animation without using direct cy access
@@ -1417,49 +1402,70 @@ def update_graph_display(stored_graph_elements, user_dragged_elements, current_g
         Output('cytoscape-elements-store', 'data'),
         Output('conversation-logs-store', 'data'),
         Output("loading-sim-step-output", "children"), # To clear loading state
-        Output("loading-chat-output", "children") # To clear loading state
+        Output("loading-chat-output", "children"), # To clear loading state
+        Output("simulation-turn-display", "children") # Update turn counter
     ],
     inputs=Input('async-step-btn', 'n_clicks'),
-    # state=[State('cytoscape-elements-store', 'data')], # Get current elements from store if needed
     running=[
         (Output("async-step-btn", "disabled"), True, False),
+        (Output("step-btn", "disabled"), True, False), # Disable sync button too
         (Output("loading-sim-step", "style"), {"visibility": "visible"}, {"visibility": "hidden"}),
         (Output("loading-chat", "style"), {"visibility": "visible"}, {"visibility": "hidden"}),
     ],
     prevent_initial_call=True,
 )
 def run_simulation_background(n_clicks):
+    """Runs one full turn of the simulation asynchronously."""
     if n_clicks is None or n_clicks == 0:
-        raise dash.exceptions.PreventUpdate
+        return dash.no_update # Use dash.no_update instead of raising PreventUpdate
 
     # Run the async simulation step
-    # Note: simulation_step_async modifies global state (agent_positions, conversation_logs)
-    # This is generally discouraged in Dash, but we'll keep it for now.
-    # A better approach would be to pass state in and return updated state.
-    asyncio.run(simulation_step_async())
+    # simulation_step_async modifies global state (agent_positions, conversation_logs, items, simulation_turn, pending_messages)
+    # This is not ideal Dash practice, but necessary for this structure without major refactoring.
+    # A better approach would involve passing state via dcc.Store and returning updates.
+    try:
+        asyncio.run(simulation_step_async())
+    except Exception as e:
+         logger.error(f"Error during simulation step: {e}", exc_info=True)
+         # Optionally return an error message to display in the UI
+         return dash.no_update, dash.no_update, f"Error: {e}", f"Error: {e}", dash.no_update
 
-    # Generate new elements based on potentially updated agent_positions
+    # Generate new elements based on updated agent_positions and item states
     new_elements = generate_elements(agent_positions)
 
-    # Return the updated elements and logs to the stores
-    # Make copies to ensure Dash detects changes if the objects are mutated elsewhere
-    return new_elements, conversation_logs.copy(), None, None
+    # Update turn display
+    turn_display = f"Current Turn: {simulation_turn}"
+
+    # Return the updated elements, logs, clear loading, and update turn counter
+    # Make copies to ensure Dash detects changes
+    return new_elements, conversation_logs.copy(), None, None, turn_display
 
 
 # -------------------------
-# Callback: Synchronous Simulation Step (Kept for comparison/debugging)
+# Callback: Synchronous Simulation Step (Now just calls the async version)
 # -------------------------
 @app.callback(
     Output('cytoscape-elements-store', 'data', allow_duplicate=True),
+    Output('conversation-logs-store', 'data', allow_duplicate=True),
+    Output("simulation-turn-display", "children", allow_duplicate=True),
     Input('step-btn', 'n_clicks'),
     prevent_initial_call=True
 )
 def run_simulation_sync(n_clicks):
+    """Runs one full turn of the simulation synchronously (by calling the async runner)."""
     if n_clicks is None or n_clicks == 0:
-        raise dash.exceptions.PreventUpdate
+        return dash.no_update
 
-    simulation_step() # This modifies global agent_positions
-    return generate_elements(agent_positions) # Return new elements based on updated positions
+    logger.info("Running synchronous step (calling async runner)...")
+    try:
+        asyncio.run(simulation_step_async())
+    except Exception as e:
+         logger.error(f"Error during synchronous simulation step: {e}", exc_info=True)
+         return dash.no_update, dash.no_update, f"Turn: {simulation_turn} (Error)"
+
+    new_elements = generate_elements(agent_positions)
+    turn_display = f"Current Turn: {simulation_turn}"
+    return new_elements, conversation_logs.copy(), turn_display
 
 
 # We're replacing the old conversation log with a modern chat interface below
@@ -1469,41 +1475,45 @@ def run_simulation_sync(n_clicks):
 # -------------------------
 @app.callback(
     Output("chat-title-details", "children"),
-    Input('cytoscape', 'tapEdgeData')
+    Input('cytoscape', 'tapEdgeData'),
+    State('cytoscape-elements-store', 'data') # Get current elements
 )
-def update_chat_title(edgeData):
-    if edgeData is None:
-        return "Click on any connection to view a conversation"
-        
-    source = edgeData.get("source")
-    target = edgeData.get("target")
-    
-    # Check connection status
-    current_connections = getattr(simulation_step, 'previous_connections', {})
-    connection_status = "Current Connection" if current_connections.get(target) == source else "Previous Connection"
-    
-    # Get conversation details
-    source_agent = agent_lookup[source]
-    target_agent = agent_lookup[target]
-    
-    # Calculate message counts
-    source_msgs = len(conversation_logs.get(source, []))
-    target_msgs = len(conversation_logs.get(target, []))
-    total_msgs = source_msgs + target_msgs
-    
+def update_chat_title(edgeData, elements_data):
+    """Updates the title above the chat box when an edge is clicked."""
+    if edgeData is None or elements_data is None:
+        return "Click a connection to view conversation"
+
+    source_name = edgeData.get("source")
+    target_name = edgeData.get("target")
+
+    # Find the edge in the current elements to check its status
+    edge_info = next((ele for ele in elements_data if ele.get("data", {}).get("source") == source_name and ele.get("data", {}).get("target") == target_name), None)
+    connection_status = "New Connection" if edge_info and edge_info.get("data", {}).get("is_new") else "Existing Connection"
+
+    # Calculate message counts (more complex now with directed messages)
+    # Count messages where either is sender or receiver in the combined log
+    total_msgs = 0
+    for agent_log in conversation_logs.values():
+        for msg in agent_log:
+            sender = msg.get("sender")
+            # This logic might need refinement depending on how 'talk' messages are logged vs reflections
+            if (sender == source_name or sender == target_name or msg.get("type") == "system"): # Count system messages too for context
+                 # A more precise count would require tracking specific interactions
+                 total_msgs += 1 # Simplified count for now
+
     return [
         html.Span([
-            html.I(className="fas fa-user-circle me-1"), 
-            f"{source} ↔ {target}"
+            html.I(className="fas fa-user-friends me-1"),
+            f"{source_name} ↔ {target_name}"
         ], className="me-3"),
         html.Span([
-            html.I(className="fas fa-exchange-alt me-1"),
+            html.I(className="fas fa-link me-1"),
             f"{connection_status}"
-        ], className="me-3 badge bg-info text-white"),
-        html.Span([
-            html.I(className="fas fa-comment me-1"),
-            f"{total_msgs} messages"
-        ], className="badge bg-secondary text-white")
+        ], className=f"me-3 badge {'bg-danger' if connection_status == 'New Connection' else 'bg-info'} text-white"),
+        # html.Span([ # Message count is less reliable now
+        #     html.I(className="fas fa-comment me-1"),
+        #     f"{total_msgs} related entries"
+        # ], className="badge bg-secondary text-white")
     ]
 
 # -------------------------
@@ -1513,35 +1523,43 @@ def update_chat_title(edgeData):
     Output("chat-history", "children"),
     Input('cytoscape', 'tapEdgeData'),
     Input('conversation-logs-store', 'data'), # Read logs from the store
-    prevent_initial_call=True # Prevent initial call before logs are populated
+    prevent_initial_call=True
 )
 def display_chat_history(edgeData, stored_logs):
+    """Displays the conversation history for the selected edge."""
     if edgeData is None or stored_logs is None:
         return html.Div([
             html.Div("Click on a connection between agents to view their conversation.",
                     className="chat-notification")
         ])
-    
-    source = edgeData.get("source")
+
     source_name = edgeData.get("source")
     target_name = edgeData.get("target")
 
-    # Combine logs from both agents involved in the selected edge using the stored_logs
+    # Combine logs *relevant* to these two agents
     combined_logs = []
+    all_logs = []
     if source_name in stored_logs:
-        combined_logs.extend(stored_logs[source_name])
+        all_logs.extend(stored_logs[source_name])
     if target_name in stored_logs:
-        combined_logs.extend(stored_logs[target_name])
+        all_logs.extend(stored_logs[target_name])
 
-    # Sort combined logs by timestamp
+    # Filter and sort combined logs by timestamp
+    for log_entry in all_logs:
+        sender = log_entry.get("sender")
+        msg_type = log_entry.get("type", "agent")
+        # Include messages sent *by* either agent or system messages *in their logs*
+        if sender == source_name or sender == target_name or (sender == "System" and (log_entry in stored_logs.get(source_name, []) or log_entry in stored_logs.get(target_name, []))):
+             # Basic check to avoid duplicates if logged in both places (though current logic shouldn't do that)
+             if log_entry not in combined_logs:
+                 combined_logs.append(log_entry)
+
     combined_logs.sort(key=lambda x: x.get("timestamp", ""))
 
     chat_messages = []
-
-    # Add a connection notification
     chat_messages.append(
         html.Div(
-            f"Conversation between {source_name} and {target_name}",
+            f"Conversation History: {source_name} & {target_name}",
             className="chat-notification"
         )
     )
@@ -1550,159 +1568,151 @@ def display_chat_history(edgeData, stored_logs):
     for log_entry in combined_logs:
         sender = log_entry.get("sender", "Unknown")
         message = log_entry.get("message", "")
-        msg_type = log_entry.get("type", "agent")
+        msg_type = log_entry.get("type", "agent") # agent, agent_internal, agent_talk, system
 
+        alignment = "left" if sender == source_name else "right"
         if msg_type == "system":
-            chat_messages.append(
-                html.Div(message, className="message system")
-            )
-        else:
-            # Determine alignment based on which agent sent the message relative to the edge tap
-            # If sender is the source of the tapped edge, align left. If target, align right.
-            alignment = "left" if sender == source_name else "right"
-            chat_messages.append(
-                html.Div([
-                    html.Div(sender, className="message-sender"),
-                    html.Div(message)
-                ], className=f"message {alignment}")
-            )
-    
+            alignment = "system"
+        elif msg_type == "agent_internal":
+             alignment = f"{alignment} internal" # Add a class for internal thoughts
+
+        chat_messages.append(
+            html.Div([
+                html.Div(sender, className="message-sender"),
+                html.Div(dcc.Markdown(message, dangerously_allow_html=True)) # Use Markdown for potential formatting
+            ], className=f"message {alignment}")
+        )
+
     # Add JavaScript to auto-scroll to the bottom of conversation
     container_with_scroll = html.Div(
         chat_messages,
         id="chat-messages-container",
-        # Auto-scroll to bottom with JavaScript
-        style={
-            "height": "100%",
-            "overflow-y": "auto"
-        }
+        style={"height": "100%", "overflowY": "auto"}
     )
-    
+
     # Add a script to scroll to bottom
-    return [
-        container_with_scroll,
-        html.Script("""
-            // Wait a short time for rendering to complete
-            setTimeout(function() {
-                var chatContainer = document.getElementById('chat-messages-container');
-                if (chatContainer) {
-                    // Scroll to the bottom to show the latest messages
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                    
-                    // Add a MutationObserver to scroll down when new messages are added
-                    var observer = new MutationObserver(function(mutations) {
+    # Note: This script might need adjustments depending on Dash version and browser behavior
+    scroll_script = """
+        var intervalId = setInterval(function() {
+            var chatContainer = document.getElementById('chat-messages-container');
+            if (chatContainer) {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+                clearInterval(intervalId); // Stop checking once the element is found
+
+                // Optional: Add MutationObserver if content loads dynamically after initial render
+                var observer = new MutationObserver(function(mutations) {
+                   // Check if the scroll is already near the bottom before forcing scroll
+                   if (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100) {
                         chatContainer.scrollTop = chatContainer.scrollHeight;
-                    });
-                    
-                    // Start observing the chat container for DOM changes
-                    observer.observe(chatContainer, { childList: true, subtree: true });
-                }
-            }, 100);
-        """)
-    ]
+                   }
+                });
+                observer.observe(chatContainer, { childList: true, subtree: true });
 
+                // Disconnect observer if the component unmounts (requires more complex handling in Dash)
+                // For simplicity, we might omit observer cleanup here in a basic example.
+            }
+        }, 100); // Check every 100ms
+    """
 
-# Removed old log style updater - no longer needed
+    return [container_with_scroll, html.Script(scroll_script)]
+
 
 # Update the thinking indicators based on the interval
 @app.callback(
-    [*[Output(f"thinking-indicator-{name}", "style", allow_duplicate=True) for name in agent_lookup.keys()]],
+    # Generate outputs dynamically based on agents present
+    [Output(f"thinking-indicator-{name}", "style") for name in agent_lookup.keys()],
     Input("refresh-interval", "n_intervals"),
-    prevent_initial_call=True
+    # prevent_initial_call=True # Allow initial call to set initial state
 )
 def update_thinking_indicators(n_intervals):
     """Update the thinking indicators based on backend agent state"""
     thinking_styles = []
-    # Use backend_agent_manager.agents
-    for name in backend_agent_manager.agents.keys():
-        agent = backend_agent_manager.agents[name]
+    for name in agent_lookup.keys():
+        agent = backend_agent_manager.agents.get(name)
         # Use the 'thinking' attribute set during simulation_step_async
         is_thinking = getattr(agent, 'thinking', False)
-        if is_thinking:
-            thinking_styles.append({"display": "inline-block"})
-        else:
-            thinking_styles.append({"display": "none"})
+        style = {"display": "inline-block"} if is_thinking else {"display": "none"}
+        thinking_styles.append(style)
     return thinking_styles
 
 # Movement statistics update
 @app.callback(
     Output("movement-stats", "children"),
     Input('cytoscape-elements-store', 'data'), # Read elements from store
-    Input('refresh-interval', 'n_intervals') # Update periodically
+    # Input('refresh-interval', 'n_intervals') # Update periodically - removed, update only when graph changes
 )
-def update_movement_stats(elements_data, n_intervals):
+def update_movement_stats(elements_data):
     """Update the movement statistics display"""
     if elements_data is None:
         return "Waiting for data..."
 
     # Get the current edges from the stored data
-    edges = [ele for ele in elements_data if "source" in ele.get("data", {})]
+    # Filter only agent-to-agent edges for connection display
+    edges = [ele for ele in elements_data if "source" in ele.get("data", {}) and ele.get("data", {}).get("type") != "landmark" and ele.get("data", {}).get("type") != "item"]
 
     # Format connection information
     connections = []
-    for edge in edges:
-        source = edge["data"]["source"]
-        target = edge["data"]["target"]
-        rounds = conversation_rounds.get((source, target), 0)
-        connections.append(html.Div([
-            html.Span([
-                html.Span(f"{source}", className="fw-bold text-warning"), 
-                " → ", 
-                html.Span(f"{target}", className="fw-bold text-warning")
-            ]),
-            html.Span(f" ({rounds} rounds)", className="ms-2 text-muted")
-        ], className="mb-1"))
-    
-    # Format movement status
-    movement_info = []
-    
-    # Check for movement requests by looking at the last processed response
-    movement_requests = []
-    # Use backend_agent_manager.agents
-    for name, agent in backend_agent_manager.agents.items():
-        # Check the last_processed_response attribute stored on the agent
-        last_response = getattr(agent, 'last_processed_response', None)
-        if last_response and last_response.get('tool_use', {}).get('name') == 'movement':
-            movement_requests.append(name)
+    if edges:
+        for edge in edges:
+            source = edge["data"]["source"]
+            target = edge["data"]["target"]
+            # Ensure source and target are agents before calculating rounds
+            if source in agent_lookup and target in agent_lookup:
+                rounds = conversation_rounds.get((source, target), 0)
+                connections.append(html.Div([
+                    html.Span([
+                        html.Span(f"{source}", className="fw-bold text-warning"),
+                        " → ",
+                        html.Span(f"{target}", className="fw-bold text-warning")
+                    ]),
+                    html.Span(f" ({rounds} rounds)", className="ms-2 text-muted")
+                ], className="mb-1"))
+    else:
+        connections.append(html.Div("No active agent connections.", className="text-muted"))
 
-    for name, cooldown in agent_movement_cooldown.items():
-        # Ensure agent exists before accessing probability
-        if name not in agent_movement_probability or name not in backend_agent_manager.agents: continue # Check agent exists
-        probability = min(0.9, agent_movement_probability[name] * (1 + 0.2 * cooldown))
+    # Format movement status (based on cooldown for UI probability indication)
+    movement_info = []
+    for name, agent in backend_agent_manager.agents.items():
+        cooldown = agent_movement_cooldown.get(name, 0)
+        probability = min(0.9, agent_movement_probability.get(name, 0.7) * (1 + 0.2 * cooldown))
         probability_percent = int(probability * 100)
-        
+
+        # Check last action for explicit move request
+        last_response = getattr(agent, 'last_processed_response', None)
+        requested_move = last_response and last_response.get('tool_use', {}).get('name') == 'movement'
+
         # Determine status text and color
-        if name in movement_requests:
-            status = "Requesting to move"
+        if requested_move:
+            status = "Moving"
             color = "text-primary fw-bold"
             icon = html.I(className="fas fa-walking me-1")
         elif cooldown == 0:
-            status = "Just joined"
+            status = "Settled/Idle"
             color = "text-info"
-            icon = ""
+            icon = html.I(className="fas fa-map-marker-alt me-1")
         elif probability_percent > 70:
-            status = "Likely to move"
+            status = "Wants to move"
             color = "text-danger"
-            icon = ""
+            icon = html.I(className="fas fa-route me-1")
         elif probability_percent > 40:
-            status = "May move soon"
+            status = "Considering moving"
             color = "text-warning"
-            icon = ""
+            icon = html.I(className="fas fa-route me-1")
         else:
-            status = "Staying"
+            status = "Content"
             color = "text-success"
-            icon = ""
-            
+            icon = html.I(className="fas fa-check-circle me-1")
+
         movement_info.append(html.Div([
             html.Span(f"{name}: ", className="fw-bold"),
             icon,
             html.Span(f"{status} ", className=f"{color}"),
-            html.Span(f"({probability_percent}%)", className="text-muted small")
+            html.Span(f"(Desire: {probability_percent}%)", className="text-muted small")
         ], className="mb-1"))
-    
+
     return html.Div([
         html.Div([
-            html.H6("Conversation Rounds", className="mb-1 small text-secondary"),
+            html.H6("Agent Connections", className="mb-1 small text-secondary"),
             html.Div(connections)
         ], className="mb-3"),
         html.Div([
@@ -1710,6 +1720,51 @@ def update_movement_stats(elements_data, n_intervals):
             html.Div(movement_info)
         ]),
     ])
+
+# -------------------------
+# Callback: Generate Agent Info Panel Dynamically
+# -------------------------
+@app.callback(
+    Output("agent-info-panel", "children"),
+    Input('cytoscape-elements-store', 'data') # Trigger update when graph data changes (e.g., after sim step)
+)
+def update_agent_info_panel(elements_data):
+    """Dynamically generates the agent settings panel."""
+    if not backend_agent_manager.agents:
+        return html.P("No agents loaded.")
+
+    agent_cards = []
+    for name, agent in backend_agent_manager.agents.items():
+        llm_provider = getattr(agent.llm_manager, 'current_provider', 'N/A')
+        llm_model = agent.llm_manager.current_models.get(llm_provider, 'N/A') if hasattr(agent, 'llm_manager') else 'N/A'
+        personality_strength = getattr(agent, 'personality_strength', 0.5)
+
+        card = dbc.Row([
+            dbc.Col(html.Div([
+                html.Span(f"{name}", className="fw-bold"),
+                html.Span(id=f"thinking-indicator-{name}", className="thinking-spinner ms-2", style={"display": "none"})
+            ]), width=3, className="d-flex align-items-center"),
+            dbc.Col(html.Div([
+                html.Div(f"{llm_provider}", className="fw-bold small"),
+                html.Div(f"{llm_model}", className="text-muted small", style={'fontSize': '0.75rem', 'wordBreak': 'break-all'})
+            ], className="d-flex flex-column justify-content-center"), width=3),
+            dbc.Col([
+                dbc.Row([
+                    html.Small(f"Personality Strength ({personality_strength:.1f})", className="text-muted"),
+                    dcc.Slider(
+                        id={'type': 'personality-slider', 'index': name},
+                        min=0, max=1, step=0.1, value=personality_strength,
+                        marks={0: '0.0', 0.5: '0.5', 1: '1.0'},
+                        tooltip={"placement": "bottom", "always_visible": False},
+                        className="mb-2 px-0" # Reduce padding
+                    )
+                ], className="gx-2") # Reduce gutter
+            ], width=6)
+        ], className="mb-2 node-card align-items-center") # Use align-items-center
+        agent_cards.append(card)
+
+    return html.Div(agent_cards)
+
 
 # -------------------------
 # Callback: Update Agent Settings (Personality Strength)
@@ -1721,63 +1776,94 @@ def update_movement_stats(elements_data, n_intervals):
     prevent_initial_call=True
 )
 def update_agent_settings(personality_values, personality_ids):
-    triggered_id = callback_context.triggered_id
-    if not triggered_id:
-        return no_update
+    """Updates agent personality strength when a slider is moved."""
+    ctx = callback_context
+    triggered_input = ctx.triggered[0] # Get the input that triggered the callback
+    input_id_dict = triggered_input['prop_id'].split('.')[0] # Get the ID string
 
-    # Find which slider triggered the callback
-    agent_name = triggered_id['index']
-    new_strength = personality_values[personality_ids.index(triggered_id)]
+    # Handle potential JSON parsing errors if the ID is not as expected
+    try:
+        # The ID is a stringified JSON, parse it
+        triggered_id_data = json.loads(input_id_dict)
+        agent_name = triggered_id_data['index']
+        new_strength = triggered_input['value']
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.error(f"Error parsing trigger ID or value in update_agent_settings: {e}")
+        return [dash.no_update] * len(personality_ids) # Return no_update for all sliders
 
-    # Update the corresponding agent's personality strength
-    if agent_name in backend_agent_manager.agents:
-        agent = backend_agent_manager.agents[agent_name]
+    # Find the agent and update its strength
+    agent = backend_agent_manager.agents.get(agent_name)
+    if agent:
         agent.personality_strength = float(new_strength)
-        logger.info(f"Updated {agent_name}'s personality strength to: {agent.personality_strength}") # Use logger
+        logger.info(f"Updated {agent_name}'s personality strength to: {agent.personality_strength}")
     else:
         logger.warning(f"Agent {agent_name} not found for settings update.")
 
-    # Return no_update as we are only updating the backend state, not the slider value itself directly
-    # (unless another callback depends on this output)
-    return no_update
+    # Return no_update for all sliders as we only update the backend state here
+    return [dash.no_update] * len(personality_ids)
 
 
 # -------------------------
-# Callback: Display Retrieved Memories on Node Click
+# Callback: Display Agent Details (Reflection & Memories) on Node Click
 # -------------------------
 @app.callback(
     Output("memory-display-panel", "children"),
     Input('cytoscape', 'tapNodeData'),
     prevent_initial_call=True
 )
-def display_retrieved_memories(nodeData):
-    if nodeData is None:
-        return html.P("Click on an agent node to see recently retrieved memories.", className="text-muted small")
+def display_agent_details(nodeData):
+    """Displays details (reflection, memories) for the clicked agent node."""
+    if nodeData is None or nodeData.get("type") != "agent":
+        return html.P("Click on an agent node to see details from their last turn.", className="text-muted small")
 
     agent_name = nodeData.get("id")
     if not agent_name or agent_name not in backend_agent_manager.agents:
-        return html.P("Agent not found.", className="text-danger small")
+        return html.P(f"Agent '{agent_name}' not found.", className="text-danger small")
 
     agent = backend_agent_manager.agents[agent_name]
     last_response = getattr(agent, 'last_processed_response', None)
-    retrieved_memories = last_response.get("retrieved_memories", []) if last_response else []
 
-    if not retrieved_memories:
-        return html.P(f"No memories retrieved for {agent_name} in the last turn.", className="text-muted small")
+    if not last_response:
+        return html.P(f"{agent_name} hasn't taken a turn yet or no response data available.", className="text-muted small")
 
-    memory_items = []
-    for i, mem in enumerate(retrieved_memories):
-        memory_items.append(
-            dbc.ListGroupItem([
-                html.H6(f"Memory {i+1} (Importance: {mem.get('importance', 'N/A')})", className="mb-1"),
-                html.Small(f"Category: {mem.get('category', 'N/A')}", className="text-muted d-block mb-1"),
-                html.P(mem.get('summary', 'No summary available.'), className="mb-1 small"),
-                html.Small(f"Keywords: {', '.join(mem.get('keywords', []))}", className="text-muted d-block"),
-                html.Small(f"Timestamp: {mem.get('timestamp', 'N/A')}", className="text-muted d-block")
-            ], className="mb-2 border-start-0 border-end-0")
-        )
+    details_content = []
 
-    return dbc.ListGroup(memory_items, flush=True)
+    # Display Reflection
+    reflection = last_response.get("reflection", {})
+    if reflection:
+        details_content.append(html.H6("Last Reflection:", className="mb-2"))
+        reflection_list = []
+        for key, value in reflection.items():
+            if value: # Only show non-empty reflection parts
+                 reflection_list.append(dbc.ListGroupItem(f"{key.replace('_', ' ').title()}: {value}", className="small border-0 px-0 py-1"))
+        if reflection_list:
+             details_content.append(dbc.ListGroup(reflection_list, flush=True, className="mb-3"))
+        else:
+             details_content.append(html.P("No reflection details available.", className="small text-muted mb-3"))
+    else:
+        details_content.append(html.P("No reflection recorded for the last turn.", className="small text-muted mb-3"))
+
+
+    # Display Retrieved Memories
+    retrieved_memories = last_response.get("retrieved_memories", [])
+    details_content.append(html.H6("Retrieved Memories (Last Turn):", className="mb-2"))
+    if retrieved_memories:
+        memory_items = []
+        for i, mem in enumerate(retrieved_memories):
+            memory_items.append(
+                dbc.ListGroupItem([
+                    html.Strong(f"Memory {i+1}"),
+                    html.Small(f" (Importance: {mem.get('importance', 'N/A')}, Cat: {mem.get('category', 'N/A')})", className="text-muted"),
+                    html.P(f"Summary: {mem.get('summary', 'N/A')}", className="mb-0 mt-1 small"),
+                    # html.P(f"Crit. Info: {mem.get('critical_information', 'N/A')}", className="mb-0 small text-secondary"),
+                    html.Small(f"Time: {mem.get('timestamp', 'N/A')}", className="text-muted d-block small")
+                ], className="mb-1 border-start-0 border-end-0 px-0 py-1")
+            )
+        details_content.append(dbc.ListGroup(memory_items, flush=True))
+    else:
+        details_content.append(html.P("No memories were retrieved for the last turn.", className="small text-muted"))
+
+    return html.Div(details_content)
 
 
 # @app.callback( # This decorator needs to be commented out as the function below is commented out
@@ -1810,4 +1896,7 @@ def display_retrieved_memories(nodeData):
 
 if __name__ == '__main__':
     logger.info("Starting Dash application...")
-    app.run(debug=True, port=8050)
+    # Add landmarks and items to initial elements
+    initial_elements = generate_elements(agent_positions)
+    app.layout['cytoscape-elements-store'].data = initial_elements # Set initial data for the store
+    app.run(debug=True, port=8050) # Consider debug=False for production
