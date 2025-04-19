@@ -1,5 +1,4 @@
-import streamlit as st
-# import os
+# import streamlit as st # Removed Streamlit dependency
 import math
 import dash
 from dash import html, dcc, Input, Output, State, callback_context, no_update
@@ -35,10 +34,8 @@ from llm.llm_manager import LLMManager
 from memory.weaviate_client import WeaviateClient
 # Alias the backend AgentManager to avoid name collision
 from agents.agent_manager import AgentManager as BackendAgentManager
-from agents.agent import Agent as BackendAgent # Import backend Agent for type hinting if needed
-
-# Remove the old create_agent_with_llm import if no longer used directly
-# from src.agent_manager import create_agent_with_llm # This file will be deleted
+from agents.agent import Agent as BackendAgent # Import backend Agent for type hinting
+from memory.mock_weaviate_client import MockWeaviateClient # Import mock client
 
 # -------------------------
 # Load API Keys, Instantiate Managers, Load Tools, and Create Agents
@@ -48,34 +45,36 @@ load_dotenv(override=True)
 openai_api_key = os.getenv("OPENAI_API_KEY")
 claude_api_key = os.getenv("CLAUDE_API_KEY")
 weaviate_url = os.getenv("WEAVIATE_URL", "http://localhost:8080") # Default if not set
+weaviate_api_key = os.getenv("WEAVIATE_API_KEY") # Added for potential cloud use
 
-if not openai_api_key or not claude_api_key:
-    st.error("OpenAI or Claude API key not found in environment variables.")
-    st.stop()
-if not weaviate_url:
-    st.error("WEAVIATE_URL not found in environment variables.")
-    # st.stop() # Use logger instead of Streamlit for errors in Dash app
-    logger.critical("OpenAI or Claude API key not found in environment variables. Exiting.")
-    sys.exit(1)
-if not weaviate_url:
-    # st.error("WEAVIATE_URL not found in environment variables.")
-    logger.critical("WEAVIATE_URL not found in environment variables. Exiting.")
-    # st.stop()
-    sys.exit(1)
+# Basic check for essential keys (can be enhanced)
+if not openai_api_key and not claude_api_key:
+    logger.warning("Neither OPENAI_API_KEY nor CLAUDE_API_KEY found in .env. At least one is needed for LLMManager.")
+    # Decide if this is critical - maybe allow running with only Ollama? For now, just warn.
 
 # Instantiate Managers
 logger.info("Instantiating LLMManager...")
 llm_manager = LLMManager() # Assumes API keys are loaded via dotenv in LLMManager itself
+
+# Instantiate Weaviate Client (with fallback to Mock)
+weaviate_client = None
 try:
-    # Assuming Weaviate doesn't need an API key for local setup
-    logger.info(f"Connecting to Weaviate at {weaviate_url}...")
-    weaviate_client = WeaviateClient(url=weaviate_url, api_key=None)
-    logger.info("Weaviate connection successful.")
+    if weaviate_url:
+        logger.info(f"Attempting to connect to Weaviate at {weaviate_url}...")
+        weaviate_client = WeaviateClient(url=weaviate_url, api_key=weaviate_api_key)
+        # Simple check to confirm connection (e.g., check readiness)
+        if not weaviate_client.client.is_ready():
+             raise Exception("Weaviate client is not ready.")
+        logger.info("Weaviate connection successful.")
+    else:
+        logger.warning("WEAVIATE_URL not set in .env.")
 except Exception as e:
-    # st.error(f"Failed to connect to Weaviate at {weaviate_url}: {e}")
-    logger.critical(f"Failed to connect to Weaviate at {weaviate_url}: {e}", exc_info=True)
-    # st.stop()
-    sys.exit(1)
+    logger.error(f"Failed to connect to Weaviate at {weaviate_url}: {e}", exc_info=True)
+    weaviate_client = None # Ensure it's None on failure
+
+if weaviate_client is None:
+    logger.warning("Weaviate connection failed or URL not provided. Using MockWeaviateClient.")
+    weaviate_client = MockWeaviateClient(url="mock://localhost")
 
 logger.info("Instantiating BackendAgentManager...")
 backend_agent_manager = BackendAgentManager(llm_manager=llm_manager, weaviate_client=weaviate_client)
@@ -88,65 +87,42 @@ try:
     all_tool_names = list(tools_config.keys())
     logger.info(f"Loaded tools: {all_tool_names}")
 except Exception as e:
-    # st.error(f"Failed to load tools from {tools_path}: {e}")
     logger.critical(f"Failed to load tools from {tools_path}: {e}", exc_info=True)
-    # st.stop()
-    sys.exit(1)
+    sys.exit(1) # Critical failure if tools can't be loaded
 
 # Create agents using the backend AgentManager
-# The personality description is now loaded automatically by AgentManager from the profile files
-# based on the agent_name. We just need to provide the name.
+# AgentManager now loads personality from profile files automatically
 default_location = "simulation_grid"
 default_personality_strength = 0.7 # Default strength for UI agents
 
-# AgentManager will load personality from python_backend/src/agents/profiles/James.txt
-james = backend_agent_manager.create_agent(
-    agent_name="James",
-    personality="", # Personality is loaded from file by AgentManager
-    available_tools=all_tool_names,
-    location=default_location,
-    personality_strength=default_personality_strength
-)
-logger.info(f"Created agent: {james.name}") # Corrected variable name
+agent_names_to_create = ["James", "Jade", "Jesse", "Jamal"]
+for name in agent_names_to_create:
+    try:
+        backend_agent_manager.create_agent(
+            agent_name=name,
+            personality="", # Loaded from file by AgentManager
+            available_tools=all_tool_names,
+            location=default_location,
+            personality_strength=default_personality_strength
+        )
+        # logger.info(f"Created agent: {name}") # AgentManager logs this
+    except FileNotFoundError as e:
+         logger.error(f"Failed to create agent '{name}': Profile file not found. {e}")
+         # Decide how to handle - skip agent or exit? For now, skip.
+    except Exception as e:
+         logger.error(f"Failed to create agent '{name}': {e}", exc_info=True)
+         # Skip this agent
 
-# AgentManager will load personality from python_backend/src/agents/profiles/Jade.txt
-jade = backend_agent_manager.create_agent(
-    agent_name="Jade",
-    personality="", # Personality is loaded from file by AgentManager
-    available_tools=all_tool_names,
-    location=default_location,
-    personality_strength=default_personality_strength
-)
-
-# AgentManager will load personality from python_backend/src/agents/profiles/Jesse.txt
-jesse = backend_agent_manager.create_agent(
-    agent_name="Jesse",
-    personality="", # Personality is loaded from file by AgentManager
-    available_tools=all_tool_names,
-    location=default_location,
-    personality_strength=default_personality_strength
-)
-
-# AgentManager will load personality from python_backend/src/agents/profiles/Jamal.txt
-jamal = backend_agent_manager.create_agent(
-    agent_name="Jamal",
-    personality="", # Personality is loaded from file by AgentManager
-    available_tools=all_tool_names,
-    location=default_location,
-    personality_strength=default_personality_strength
-)
-
-
-# Remove the old agent creation calls
 # Update the agent_lookup dictionary with the agents created by the backend manager
 agent_lookup = backend_agent_manager.agents
+if not agent_lookup:
+    logger.critical("No agents were created successfully. Exiting.")
+    sys.exit(1)
 
-# Remove the old AgentManager instantiation
-# agents = [james, jade, jesse, jamal]
-# agent_manager = AgentManager(agents)
+logger.info(f"Successfully created agents: {list(agent_lookup.keys())}")
 
 # -------------------------
-# Simulation Data Structures
+# Simulation Data Structures & Environment
 # -------------------------
 # Initial agent positions (could be randomized or pre-set)
 agent_positions = {
@@ -162,12 +138,34 @@ conversation_logs = {name: [] for name in agent_lookup.keys()}
 # Track conversation rounds between agents
 conversation_rounds = {}  # Format: {(source, target): count}
 
-# Track movement state
-agent_movement_cooldown = {name: 0 for name in agent_lookup.keys()}  # Countdown until agent considers moving
-agent_movement_probability = {name: 0.7 for name in agent_lookup.keys()}  # Base probability of movement
-grid_bounds = {"min_x": 50, "max_x": 550, "min_y": 50, "max_y": 550}  # Grid boundaries
-movement_distance = 75  # How far agents move in one step
+# Track movement state (cooldown is now mainly for UI display)
+agent_movement_cooldown = {name: 0 for name in agent_lookup.keys()}
+agent_movement_probability = {name: 0.7 for name in agent_lookup.keys()} # Base probability for UI display calculation
+grid_bounds = {"min_x": 50, "max_x": 550, "min_y": 50, "max_y": 550}
+movement_distance = 50 # Adjusted movement distance per step
 
+# --- Environment State ---
+# Define landmarks and items in the environment
+landmarks = {
+    "center_fountain": {"x": 300, "y": 300, "type": "landmark", "description": "A decorative fountain."},
+    "north_bench": {"x": 300, "y": 100, "type": "landmark", "description": "A wooden bench."},
+    "west_cafe": {"x": 100, "y": 300, "type": "landmark", "description": "A small outdoor cafe table."},
+}
+
+items = {
+    "red_ball": {"x": 450, "y": 450, "type": "item", "description": "A small red ball.", "state": "on_ground"},
+    "info_kiosk": {"x": 150, "y": 150, "type": "item", "description": "An interactive information kiosk.", "state": "idle"},
+    "lab_door": {"x": 500, "y": 200, "type": "door", "description": "Door to the research lab.", "state": "closed"},
+    "cafe_chair": {"x": 120, "y": 320, "type": "seat", "description": "A chair at the cafe.", "state": "empty"},
+}
+# --- End Environment State ---
+
+# Store messages passed between agents during a turn
+# Format: { target_agent_name: [ (sender_agent_name, message_content), ... ], ... }
+pending_messages: Dict[str, List[tuple[str, str]]] = {name: [] for name in agent_lookup.keys()}
+
+# Track simulation turn number
+simulation_turn = 0
 
 def compute_edges(positions):
     """
@@ -229,34 +227,57 @@ def generate_elements(positions):
         # Track if the agent is thinking for animation
         thinking = agent.thinking if hasattr(agent, 'thinking') else False
         
-        # Assign a movement class based on probability
+        # Assign a movement class based on probability (for UI display only)
         movement_class = ""
         if cooldown == 0:
-            movement_class = "just-joined"
+            movement_class = "just-joined" # Agent just moved or started
         elif probability_percent > 70:
-            movement_class = "likely-to-move"
+            movement_class = "likely-to-move" # High internal 'desire' to move
         elif probability_percent > 40:
-            movement_class = "may-move-soon"
-        
+            movement_class = "may-move-soon" # Moderate internal 'desire'
+
+        # Add agent node
         elements.append({
             "data": {
                 "id": name,
                 "label": name,
-                "movement_probability": probability,
-                "class": movement_class,
-                # "state": agent_state, # Removed, using 'thinking' directly
-                "thinking": thinking # Use the 'thinking' attribute
+                "movement_probability": probability, # For display/debug
+                "class": movement_class, # For UI styling
+                "thinking": thinking, # For UI styling/animation
+                "type": "agent" # Add type for styling/filtering
             },
-            "position": {"x": pos["x"], "y": pos["y"]}
+            "position": {"x": pos["x"], "y": pos["y"]},
+            "grabbable": True, # Allow dragging
+            "selectable": True,
         })
-        
-    # Add edges
+    # Add edges based on proximity
     edges = compute_edges(positions)
     elements.extend(edges)
+
+    # Add landmark nodes
+    for name, data in landmarks.items():
+        elements.append({
+            "data": {"id": name, "label": name, "type": "landmark"},
+            "position": {"x": data["x"], "y": data["y"]},
+            "grabbable": False,
+            "selectable": False,
+            "classes": "landmark-node" # Class for styling
+        })
+
+    # Add item nodes
+    for name, data in items.items():
+         elements.append({
+             "data": {"id": name, "label": f"{name} ({data['state']})", "type": "item"}, # Show state in label
+             "position": {"x": data["x"], "y": data["y"]},
+             "grabbable": False,
+             "selectable": False,
+             "classes": f"item-node item-{data['type']}" # Classes for styling
+         })
+
     return elements
 
 
-def move_agent(agent_name: str, current_positions: dict, landmarks: dict, target_type: Optional[str] = None, target_name: Optional[str] = None):
+def move_agent(agent_name: str, current_positions: dict, landmarks_map: dict, items_map: dict, target_type: Optional[str] = None, target_name: Optional[str] = None):
     """
     Move an agent towards a target or randomly if no specific target.
     Move an agent towards a target or randomly if no specific target.
@@ -271,31 +292,36 @@ def move_agent(agent_name: str, current_positions: dict, landmarks: dict, target
     current_y = current_positions[agent_name]["y"]
     
     target_x, target_y = None, None
+    target_found = False
 
-    # Determine target coordinates
+    # Determine target coordinates based on type
     if target_type == "agent" and target_name in current_positions:
         target_x = current_positions[target_name]["x"]
         target_y = current_positions[target_name]["y"]
+        target_found = True
         logger.info(f"Agent '{agent_name}' moving towards agent '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
-    elif target_type == "landmark" and target_name in landmarks:
-        target_x = landmarks[target_name]["x"]
-        target_y = landmarks[target_name]["y"]
+    elif target_type == "landmark" and target_name in landmarks_map:
+        target_x = landmarks_map[target_name]["x"]
+        target_y = landmarks_map[target_name]["y"]
+        target_found = True
         logger.info(f"Agent '{agent_name}' moving towards landmark '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
-    # Add 'item' type later if needed
-    # elif target_type == "item" and target_name in items: # Assuming 'items' is defined globally like 'landmarks'
-    #     target_x = items[target_name]["x"]
-    #     target_y = items[target_name]["y"]
-    #     logger.info(f"Agent '{agent_name}' moving towards item '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
+    elif target_type == "item" and target_name in items_map:
+        target_x = items_map[target_name]["x"]
+        target_y = items_map[target_name]["y"]
+        target_found = True
+        logger.info(f"Agent '{agent_name}' moving towards item '{target_name}' at ({target_x:.0f}, {target_y:.0f}).")
     else:
-        if target_type or target_name: # Only log if a target was intended but not found
+        # Log only if a specific target was given but not found
+        if target_type and target_name:
             logger.warning(f"Agent '{agent_name}' target '{target_name}' of type '{target_type}' not found or invalid. Moving randomly.")
         else:
-            logger.info(f"Agent '{agent_name}' moving randomly (no specific target).")
-        # Fallback to random movement if target is invalid/not found or not specified
+             logger.info(f"Agent '{agent_name}' moving randomly (no specific target provided).")
+        # Fallback to random movement
         target_x, target_y = None, None
+        target_found = False
 
     # Calculate movement vector
-    if target_x is not None and target_y is not None:
+    if target_found and target_x is not None and target_y is not None:
         dx = target_x - current_x
         dy = target_y - current_y
         distance_to_target = math.sqrt(dx*dx + dy*dy)
@@ -657,47 +683,51 @@ async def simulation_step_async():
 
 def _handle_agent_movement(edges, previous_connections):
     """
-    Handle updates related to agent movement cooldown based on conversation duration.
-    Actual movement decisions are now handled via the 'movement' tool in simulation_step_async.
-    This function primarily updates the cooldown counter used for UI display.
+    Handle updates related to agent movement cooldown based on *potential* conversation duration.
+    This is primarily for the UI display logic, as actual movement is tool-driven.
     """
-    # Update cooldown based on ongoing conversations
-    for edge in edges:
-        source = edge["data"]["source"]
-        target = edge["data"]["target"]
+    active_agents_this_turn = set()
+    # Identify agents who actually performed a 'talk' action this turn
+    # (This requires inspecting the processed_response, which isn't directly available here)
+    # For now, we'll stick to the proximity-based cooldown update for UI display.
 
-        # Check if it's an ongoing conversation (not new)
-        is_new_connection = previous_connections.get(target) != source
+    for target_name, source_name in current_connections.items():
+        # Check if it's an ongoing connection (not new)
+        is_new_connection = previous_connections.get(target_name) != source_name
         if not is_new_connection:
-            conversation_pair = (source, target)
-            rounds = conversation_rounds.get(conversation_pair, 0)
+            conversation_pair = (source_name, target_name)
+            rounds = conversation_rounds.get(conversation_pair, 0) # Rounds already incremented
 
-            # Increment movement cooldown for agents who have been talking for a while
-            # This cooldown is now just for UI display probability, not triggering movement.
-            if rounds >= 1: # Start incrementing after 1 round
-                 # Only increment if the agent didn't just move via tool
-                 source_agent = backend_agent_manager.agents.get(source)
-                 target_agent = backend_agent_manager.agents.get(target)
+            # Increment cooldown if the agent didn't just move via the 'movement' tool
+            source_agent = backend_agent_manager.agents.get(source_name)
+            target_agent = backend_agent_manager.agents.get(target_name)
 
-                 source_moved = source_agent and source_agent.last_processed_response and source_agent.last_processed_response.get('tool_use', {}).get('name') == 'movement'
-                 target_moved = target_agent and target_agent.last_processed_response and target_agent.last_processed_response.get('tool_use', {}).get('name') == 'movement'
+            source_moved = source_agent and source_agent.last_processed_response and source_agent.last_processed_response.get('tool_use', {}).get('name') == 'movement'
+            target_moved = target_agent and target_agent.last_processed_response and target_agent.last_processed_response.get('tool_use', {}).get('name') == 'movement'
 
-                 if not source_moved:
-                     agent_movement_cooldown[source] = agent_movement_cooldown.get(source, 0) + 1
-                 if not target_moved:
-                     agent_movement_cooldown[target] = agent_movement_cooldown.get(target, 0) + 1
+            if not source_moved:
+                agent_movement_cooldown[source_name] = agent_movement_cooldown.get(source_name, 0) + 1
+            if not target_moved:
+                agent_movement_cooldown[target_name] = agent_movement_cooldown.get(target_name, 0) + 1
         else:
-             # Reset cooldown if it's a new connection (already handled in simulation_step_async, but safe to repeat)
-             agent_movement_cooldown[target] = 0
-             # Also reset source cooldown if they initiated this new connection (less critical)
-             agent_movement_cooldown[source] = 0
+            # Reset cooldown if it's a new connection
+            agent_movement_cooldown[target_name] = 0
+            agent_movement_cooldown[source_name] = 0 # Reset source too
 
-    # Probabilistic movement logic is removed. Agents move via the 'movement' tool.
+    # Reset cooldown for any agent that didn't interact (wasn't a target in current_connections)
+    # This might be too aggressive, consider if agents should maintain cooldown if idle.
+    # For now, let's keep it simple: cooldown increases only during sustained interaction.
+    all_agent_names = set(agent_lookup.keys())
+    interacting_agents = set(current_connections.keys()) | set(current_connections.values())
+    idle_agents = all_agent_names - interacting_agents
+    for agent_name in idle_agents:
+         agent_movement_cooldown[agent_name] = 0 # Reset cooldown if agent was idle
 
 
-def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, radius: float, scan_filter: str) -> str:
+def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, items_dict: dict, radius: float, scan_filter: str) -> str:
     """
-    Performs a scan from the scanner's position to find nearby agents and landmarks. Returns a descriptive string.
+    Performs a scan from the scanner's position to find nearby agents, landmarks, and items.
+    Returns a descriptive string.
     """
     logger.debug(f"Performing scan for {scanner_name} at {positions.get(scanner_name)} with radius {radius}, filter '{scan_filter}'")
     scanner_pos = positions.get(scanner_name)
@@ -707,6 +737,7 @@ def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, radi
 
     nearby_agents = []
     nearby_landmarks = []
+    nearby_items = []
     radius_sq = radius * radius
 
     # Scan for agents
@@ -719,23 +750,44 @@ def _perform_scan(scanner_name: str, positions: dict, landmarks_dict: dict, radi
             dist_sq = dx*dx + dy*dy
             if dist_sq <= radius_sq:
                 distance = math.sqrt(dist_sq)
-                nearby_agents.append(f"{name} (dist: {distance:.1f})")
+                nearby_agents.append(f"{name}(dist:{distance:.1f})")
                 logger.debug(f"Scan found agent: {name} at distance {distance:.1f}")
 
     # Scan for landmarks
     if scan_filter in ["landmarks", "all"]:
-        for name, pos in landmarks_dict.items():
+        for name, data in landmarks_dict.items():
+            pos = {"x": data["x"], "y": data["y"]}
             dx = pos["x"] - scanner_pos["x"]
             dy = pos["y"] - scanner_pos["y"]
             dist_sq = dx*dx + dy*dy
             if dist_sq <= radius_sq:
                 distance = math.sqrt(dist_sq)
-                nearby_landmarks.append(f"{name} (dist: {distance:.1f})")
+                nearby_landmarks.append(f"{name}(dist:{distance:.1f})")
                 logger.debug(f"Scan found landmark: {name} at distance {distance:.1f}")
 
+    # Scan for items
+    if scan_filter in ["items", "all"]:
+         for name, data in items_dict.items():
+             pos = {"x": data["x"], "y": data["y"]}
+             dx = pos["x"] - scanner_pos["x"]
+             dy = pos["y"] - scanner_pos["y"]
+             dist_sq = dx*dx + dy*dy
+             if dist_sq <= radius_sq:
+                 distance = math.sqrt(dist_sq)
+                 nearby_items.append(f"{name}({data['state']}, dist:{distance:.1f})") # Include item state
+                 logger.debug(f"Scan found item: {name} at distance {distance:.1f}")
+
+
     # Format results
-    result_str = "Nearby Agents: " + (", ".join(nearby_agents) if nearby_agents else "None") + \
-                 ". Nearby Landmarks: " + (", ".join(nearby_landmarks) if nearby_landmarks else "None") + "."
+    results = []
+    if scan_filter in ["agents", "all"] and nearby_agents:
+        results.append("Agents: " + ", ".join(nearby_agents))
+    if scan_filter in ["landmarks", "all"] and nearby_landmarks:
+        results.append("Landmarks: " + ", ".join(nearby_landmarks))
+    if scan_filter in ["items", "all"] and nearby_items:
+        results.append("Items: " + ", ".join(nearby_items))
+
+    result_str = ". ".join(results) if results else "Nothing found."
 
     logger.debug(f"Scan result string for {scanner_name}: {result_str}")
     return result_str
@@ -1038,70 +1090,109 @@ app.layout = html.Div([
                                     'text-background-opacity': 1,
                                     'text-background-color': '#FF7F00',
                                     'text-background-shape': 'roundrectangle',
-                                    'text-background-padding': '4px'
+                                    'text-background-padding': '4px',
+                                    'z-index': 10 # Ensure nodes are above edges
                                 }},
-                                # Thinking state styling with CSS animation
-                                {'selector': 'node[?thinking]', 'style': { # Use the boolean 'thinking' attribute
-                                    'background-color': '#9C27B0',  # Purple for thinking state
-                                    'border-width': 4,
+                                # Agent Thinking state styling
+                                {'selector': 'node[type="agent"][?thinking]', 'style': {
+                                    'background-color': '#9C27B0',  # Purple
                                     'border-color': '#E1BEE7',
                                     'border-style': 'dashed',
                                     'border-opacity': 1,
                                     'border-dash-pattern': [6, 3],
                                     'text-background-color': '#9C27B0',
-                                    'animation': 'thinking-pulse 1.5s infinite',
-                                    'transition-property': 'background-color, border-color, border-width',
-                                    'transition-duration': '0.3s'
+                                    'transition-property': 'background-color, border-color',
+                                    'transition-duration': '0.5s'
                                 }},
+                                # Landmark styling
+                                {'selector': 'node[type="landmark"]', 'style': {
+                                    'shape': 'rectangle',
+                                    'background-color': '#A0A0A0', # Grey
+                                    'border-color': '#666666',
+                                    'border-width': 1,
+                                    'label': 'data(label)',
+                                    'color': '#FFFFFF',
+                                    'text-outline-color': '#666666',
+                                    'text-outline-width': 1,
+                                    'font-size': '10px',
+                                    'width': 50,
+                                    'height': 30,
+                                    'z-index': 1 # Lower than agents
+                                }},
+                                # Item styling (base)
+                                {'selector': 'node[type="item"]', 'style': {
+                                    'shape': 'diamond',
+                                    'background-color': '#4CAF50', # Green
+                                    'border-color': '#388E3C',
+                                    'border-width': 1,
+                                    'label': 'data(label)',
+                                    'color': '#FFFFFF',
+                                    'text-outline-color': '#388E3C',
+                                    'text-outline-width': 1,
+                                    'font-size': '9px',
+                                    'width': 25,
+                                    'height': 25,
+                                    'z-index': 1
+                                }},
+                                # Specific item type styling
+                                {'selector': '.item-door', 'style': {'shape': 'rectangle', 'background-color': '#8D6E63'}}, # Brown
+                                {'selector': '.item-seat', 'style': {'shape': 'round-rectangle', 'background-color': '#795548'}}, # Brownish
+                                {'selector': 'node[state="open"]', 'style': {'border-style': 'dashed'}},
+                                {'selector': 'node[state*="occupied"]', 'style': {'background-color': '#FF9800'}}, # Orange when occupied
+                                {'selector': 'node[state*="held"]', 'style': {'border-color': '#2196F3', 'border-width': 2}}, # Blue border when held
+
+                                # Edge styling
                                 {'selector': 'edge', 'style': {
-                                    'line-color': '#FFA500',
-                                    'target-arrow-color': '#FF5722',
+                                    'line-color': '#FFC107', # Amber/Yellow
+                                    'target-arrow-color': '#FFC107',
                                     'target-arrow-shape': 'triangle',
                                     'curve-style': 'bezier',
-                                    'width': 3,
-                                    'arrow-scale': 1.5,
-                                    'opacity': 0.8,
-                                    'z-index': 1  # Make sure edges appear below nodes
+                                    'width': 2,
+                                    'arrow-scale': 1.2,
+                                    'opacity': 0.6,
+                                    'z-index': 5 # Above background, below nodes
                                 }},
+                                # New connection edge styling
                                 {'selector': 'edge[?is_new]', 'style': {
-                                    'line-color': '#FF3300',
-                                    'target-arrow-color': '#FF3300',
-                                    'width': 4,
+                                    'line-color': '#FF5722', # Deep Orange
+                                    'target-arrow-color': '#FF5722',
+                                    'width': 3,
                                     'line-style': 'dashed',
-                                    'opacity': 1,
-                                    'line-dash-pattern': [8, 3]
+                                    'opacity': 0.9,
+                                    'line-dash-pattern': [6, 3]
                                 }},
+                                # Agent movement state styling (UI probability indicator)
                                 {'selector': 'node[class="likely-to-move"]', 'style': {
                                     'border-width': 4,
-                                    'border-color': '#FF3333',
+                                    'border-color': '#F44336', # Red
                                     'border-style': 'dashed',
-                                    'background-color': '#FF7F00',
                                     'border-opacity': 0.8
                                 }},
                                 {'selector': 'node[class="may-move-soon"]', 'style': {
                                     'border-width': 3,
-                                    'border-color': '#FFC107',
+                                    'border-color': '#FFEB3B', # Yellow
                                     'border-style': 'dashed',
-                                    'background-color': '#FF7F00',
                                     'border-opacity': 0.7
                                 }},
                                 {'selector': 'node[class="just-joined"]', 'style': {
                                     'border-width': 3,
-                                    'border-color': '#33AAFF',
+                                    'border-color': '#03A9F4', # Light Blue
                                     'border-style': 'solid',
-                                    'background-color': '#FF7F00',
                                     'border-opacity': 1
                                 }},
+                                # Selected node/edge styling
                                 {'selector': ':selected', 'style': {
-                                    'background-color': '#FF5722',
-                                    'line-color': '#FF5722',
+                                    'background-color': '#FF9800', # Orange
+                                    'line-color': '#FF9800',
+                                    'target-arrow-color': '#FF9800',
                                     'border-width': 4,
-                                    'border-color': '#FFC107',
+                                    'border-color': '#FF5722', # Deep Orange
                                     'opacity': 1
                                 }}
                             ],
                             userPanningEnabled=True,
                             userZoomingEnabled=True,
+                            boxSelectionEnabled=False, # Disable box selection for now
                             autoungrabify=False,
                             minZoom=0.5,
                             maxZoom=2.0,

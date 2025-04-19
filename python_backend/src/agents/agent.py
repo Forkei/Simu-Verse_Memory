@@ -24,37 +24,77 @@ class Agent:
         self.available_tools = available_tools
         self.location = location
         self.conversation_history: List[Dict[str, str]] = []
-        self.thinking: bool = False # Added for UI state tracking
-        self.last_processed_response: Optional[Dict[str, Any]] = None # Added for UI state tracking
-        self.last_scan_result: Optional[str] = None # Added for UI state tracking of scan results
+        self.thinking: bool = False # For UI state tracking
+        self.last_processed_response: Optional[Dict[str, Any]] = None # Store result from AgentManager
+        self.last_scan_result: Optional[str] = None # Store scan result for next turn's input
         self.personality_strength: float = personality_strength # Store personality strength
 
-    def generate_response(self, updated_system_prompt: str) -> str:
+    def generate_response(self, turn_system_prompt: str) -> str:
         """
         Generate a response from the agent using the LLM.
-        
+        The AgentManager prepares the full context (history, memories, etc.)
+        and passes it via the turn_system_prompt and the last user message.
+
         Args:
-            updated_system_prompt: System prompt with current context
-            
+            turn_system_prompt: The complete system prompt for this specific turn,
+                                including personality, location, memories, tools etc.
+
         Returns:
-            The agent's response in XML format
+            The agent's raw XML response string.
         """
-        # Construct the prompt from conversation history
-        prompt = self._construct_prompt()
+        # The prompt is now just the last user message (which might contain system info, memories etc.)
+        # The system prompt contains the rest of the context.
+        # History is managed by LLMManager based on the provider.
+        last_user_message = ""
+        if self.conversation_history and self.conversation_history[-1]["role"] == "user":
+             last_user_message = self.conversation_history[-1]["content"]
+        else:
+             # This case should ideally be handled by AgentManager providing an initial prompt
+             logger.warning(f"Agent {self.name} generating response without preceding user message in history.")
+             last_user_message = "[SYSTEM: Start of interaction or previous context missing. Please respond based on your current state.]"
+
 
         # Generate response using the LLM, passing personality strength
+        # The LLMManager will handle combining the system prompt, history, and the new user message.
         response = self.llm_manager.generate_response(
-            prompt,
-            updated_system_prompt,
+            prompt=last_user_message, # The actual new input/stimulus
+            system_prompt=turn_system_prompt, # The full context prompt
             personality_strength=self.personality_strength
         )
 
-        # Add the response to conversation history
-        self.add_to_conversation("assistant", response)
-        
+        # Note: Adding the assistant response to history is now handled by AgentManager *after* successful parsing.
+
         return response
-    
-    def _construct_prompt(self) -> str:
+
+    # _construct_prompt is no longer needed here as context is built in AgentManager
+    # def _construct_prompt(self) -> str:
+    #     """
+    #     Construct a prompt from the conversation history. (DEPRECATED)
+    #
+    #     Returns:
+    #         The constructed prompt
+    #     """
+    #     if not self.conversation_history:
+    #         return "Please respond to this initial interaction."
+    #
+    #     # Get the last few messages from conversation history
+    #     recent_messages = self.conversation_history[-5:]  # Last 5 messages
+    #
+    #     # Construct the prompt
+    #     prompt = "Based on our conversation so far, please respond to this interaction:\n\n"
+    #
+    #     for message in recent_messages:
+    #         role = message["role"]
+    #         content = message["content"]
+    #
+    #         if role == "user":
+    #             prompt += f"User: {content}\n\n"
+    #         else:
+    #             prompt += f"You: {content}\n\n"
+    #
+    #     return prompt
+
+    def add_to_conversation(self, role: str, content: str) -> None:
         """
         Construct a prompt from the conversation history.
         

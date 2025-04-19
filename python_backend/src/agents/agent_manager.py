@@ -3,6 +3,8 @@ import json
 import yaml
 import datetime
 import logging
+import time
+import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Any, Union
 
 # Setup logging
@@ -16,9 +18,15 @@ from ..memory.mock_weaviate_client import MockWeaviateClient
 from .agent import Agent
 from .subconscious_agent import SubconsciousAgent
 
+# Constants
+MAX_LLM_RETRIES = 3
+RETRY_DELAY_SECONDS = 1
+
 class AgentManager:
     """
     Manages the lifecycle and coordination of multiple agents in the simulation.
+    Handles agent turn processing including memory retrieval, response generation,
+    XML parsing, error handling, and memory creation.
     """
     
     def __init__(self, llm_manager: LLMManager, weaviate_client: Optional[Union[WeaviateClient, MockWeaviateClient]] = None):
@@ -43,6 +51,10 @@ class AgentManager:
         self.config = self._load_config()
         self.tools = self._load_tools()
         self.memory_categories = self._load_memory_categories()
+        self.environment_state = { # Basic environment state, can be updated externally
+            "nearby_agents": {}, # {agent_name: [nearby_agent1, ...]}
+            "nearby_objects": {} # {agent_name: [nearby_object1, ...]}
+        }
 
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from config.yaml."""
@@ -144,10 +156,10 @@ class AgentManager:
         agent = Agent(
             name=agent_name,
             llm_manager=self.llm_manager,
-            system_prompt=system_prompt,
+            system_prompt=system_prompt, # Base prompt, will be updated per turn
             available_tools=agent_tools,
             location=location,
-            personality_strength=personality_strength # Pass to Agent constructor
+            personality_strength=personality_strength
         )
 
         # Create the subconscious agent
@@ -215,39 +227,99 @@ class AgentManager:
 
         # Update nearby information (in a real implementation, this would come from the environment)
         # For now, we'll use placeholders
-        updated_prompt = updated_prompt.replace("{{NEARBY_AGENTS}}", "None")
-        updated_prompt = updated_prompt.replace("{{NEARBY_OBJECTS}}", "None")
-        
-        # Generate agent response
+        # Update nearby information (replace placeholders with actual data if available)
+        nearby_agents_str = ", ".join(self.environment_state.get("nearby_agents", {}).get(agent_name, [])) or "None"
+        nearby_objects_str = ", ".join(self.environment_state.get("nearby_objects", {}).get(agent_name, [])) or "None"
+        updated_prompt = updated_prompt.replace("{{NEARBY_AGENTS}}", nearby_agents_str)
+        updated_prompt = updated_prompt.replace("{{NEARBY_OBJECTS}}", nearby_objects_str)
+
+        # Add input message to conversation history *before* generating response
         if input_message:
-            logger.debug(f"Adding user message to {agent_name}'s history: {input_message[:50]}...")
-            agent.add_to_conversation("user", input_message)
+            logger.debug(f"Adding input context to {agent_name}'s history: {input_message[:100]}...")
+            agent.add_to_conversation("user", input_message) # Treat all input context as 'user' for the LLM
 
-        logger.debug(f"Generating response for {agent_name}...")
-        response = agent.generate_response(updated_prompt)
-        logger.debug(f"Raw response from {agent_name}: {response[:100]}...")
+        # --- Generate Agent Response with Retry Logic ---
+        raw_response = None
+        processed_response = None
+        last_error = None
 
-        # Process the response to extract reflection and tool use
-        processed_response = self._process_agent_response(response)
+        for attempt in range(MAX_LLM_RETRIES):
+            logger.debug(f"Attempt {attempt + 1}/{MAX_LLM_RETRIES} to generate response for {agent_name}...")
+            try:
+                # Generate raw response using the Agent's method
+                raw_response = agent.generate_response(updated_prompt)
+                logger.debug(f"Raw response attempt {attempt + 1} from {agent_name}: {raw_response[:150]}...")
 
-        # Add retrieved memories to the response for potential UI display
+                # Process the response to extract reflection and tool use
+                processed_response = self._process_agent_response(raw_response)
+
+                # Basic validation: Check if essential parts exist
+                if not processed_response.get("reflection") and not processed_response.get("tool_use"):
+                     raise ValueError("Response missing both reflection and tool_use sections.")
+                if not processed_response.get("tool_use", {}).get("name"):
+                     logger.warning(f"Agent {agent_name} did not specify a tool. Assuming 'do_nothing'.")
+                     # Optionally force a 'do_nothing' tool if none provided
+                     # processed_response["tool_use"] = {"name": "do_nothing", "parameters": {}}
+
+                # If successful, break the loop
+                logger.info(f"Successfully generated and parsed response for {agent_name} on attempt {attempt + 1}.")
+                last_error = None # Reset error on success
+                break
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Attempt {attempt + 1} failed for {agent_name}: {e}. Raw response: {raw_response}")
+                if attempt < MAX_LLM_RETRIES - 1:
+                    logger.info(f"Retrying after {RETRY_DELAY_SECONDS} seconds...")
+                    time.sleep(RETRY_DELAY_SECONDS)
+                    # Add error context for the next attempt
+                    input_message += f"\n\n[SYSTEM_ERROR: Previous attempt failed: {e}. Please ensure response is valid XML with reflection and tool_use sections.]"
+                    agent.add_to_conversation("user", f"[SYSTEM_ERROR: Previous attempt failed: {e}. Please ensure response is valid XML with reflection and tool_use sections.]") # Add to history too
+                else:
+                    logger.error(f"Agent {agent_name} failed to generate valid response after {MAX_LLM_RETRIES} attempts.")
+                    # Handle final failure - return error state or default action
+                    processed_response = {
+                        "reflection": {"description": f"[ERROR: Failed to generate valid response after {MAX_LLM_RETRIES} attempts. Last error: {last_error}]"},
+                        "tool_use": {"name": "do_nothing", "parameters": {}}, # Default to do_nothing on failure
+                        "error": str(last_error),
+                        "retrieved_memories": memories # Still include memories for context
+                    }
+
+        # Add retrieved memories to the final processed response
         processed_response["retrieved_memories"] = memories
 
-        # Create a new memory from this interaction
-        if input_message or len(agent.conversation_history) > 0:
-            logger.debug(f"Creating memory for {agent_name} based on recent interaction.")
+        # --- Create Memory Post-Turn ---
+        # Use the *successful* raw_response if available, otherwise use the error message
+        final_assistant_content = raw_response if last_error is None else processed_response["reflection"]["description"]
+        # Ensure the assistant message is added to history *after* successful generation/parsing or error handling
+        if final_assistant_content:
+             agent.add_to_conversation("assistant", final_assistant_content)
+
+        # Create memory based on the *input* and the *final response/action*
+        # Use the last two entries (user input + assistant response/error) for memory creation context
+        memory_context_list = agent.conversation_history[-2:] if len(agent.conversation_history) >= 2 else agent.conversation_history
+        if memory_context_list: # Only create memory if there was some interaction
+            logger.debug(f"Creating memory for {agent_name} based on last interaction.")
             try:
-                subconscious.create_memory_from_conversation(
-                    agent.conversation_history[-10:] if len(agent.conversation_history) >= 10 else agent.conversation_history,
-                    agent.location
+                # Run memory creation in a separate thread to avoid blocking the main loop further
+                # Note: This assumes Weaviate client is thread-safe or uses connection pooling.
+                # If using mock client, this is fine.
+                # For simplicity here, we'll run it synchronously, but consider threading for performance.
+                created_memory = await asyncio.to_thread(
+                     subconscious.create_memory_from_conversation,
+                     memory_context_list,
+                     agent.location
                 )
-                logger.debug(f"Memory created successfully for {agent_name}.")
+                if created_memory:
+                    logger.debug(f"Memory created successfully for {agent_name}. ID: {created_memory.get('id')}")
+                else:
+                    logger.warning(f"Memory creation returned empty for {agent_name}.")
             except Exception as e:
                 logger.error(f"Failed to create memory for {agent_name}: {e}", exc_info=True)
 
-        logger.debug(f"Processed response for {agent_name}: {processed_response}")
+        logger.info(f"Finished processing turn for agent: {agent_name}")
         return processed_response
-    
+
     def _format_memories_for_prompt(self, memories: List[Dict[str, Any]]) -> str:
         """Format retrieved memories for inclusion in the agent's prompt."""
         if not memories:
@@ -262,61 +334,77 @@ class AgentManager:
             memory_text += f"- Time: {memory.get('timestamp', 'Unknown time')}\n"
             memory_text += f"- Critical Information: {memory.get('critical_information', 'None')}\n"
             memory_text += f"- Importance: {memory.get('importance', 5)}/10\n\n"
-        
-        return memory_text
-    
-    def _process_agent_response(self, response: str) -> Dict[str, Any]:
+        return memory_text.strip()
+
+    def _process_agent_response(self, xml_response: str) -> Dict[str, Any]:
         """
-        Process the XML response from an agent to extract reflection and tool use.
-        
+        Process the XML response from an agent using ElementTree.
+
         Args:
-            response: XML-formatted response from the agent
-            
+            xml_response: XML-formatted response string from the agent.
+
         Returns:
-            Dictionary with parsed reflection and tool use information
+            Dictionary with parsed reflection and tool use information.
+            Returns empty dicts if parsing fails or sections are missing.
         """
-        # This is a simplified parser - in a real implementation, use a proper XML parser
         result = {
             "reflection": {},
             "tool_use": {}
         }
-        
-        # Extract reflection components
-        for component in ["current_task", "description", "next_steps", "goal", "other_info"]:
-            start_tag = f"<{component}>"
-            end_tag = f"</{component}>"
-            if start_tag in response and end_tag in response:
-                start_idx = response.find(start_tag) + len(start_tag)
-                end_idx = response.find(end_tag)
-                result["reflection"][component] = response[start_idx:end_idx].strip()
-        
-        # Extract tool use
-        if "<tool_use>" in response and "</tool_use>" in response:
-            tool_section = response.split("<tool_use>")[1].split("</tool_use>")[0].strip()
-            
-            # Extract tool name
-            if "<tool_name>" in tool_section and "</tool_name>" in tool_section:
-                start_idx = tool_section.find("<tool_name>") + len("<tool_name>")
-                end_idx = tool_section.find("</tool_name>")
-                result["tool_use"]["name"] = tool_section[start_idx:end_idx].strip()
-            # Extract parameters
-            result["tool_use"]["parameters"] = {}
-            param_sections = tool_section.split("<parameter ")
-            logger.debug(f"Found {len(param_sections) - 1} parameter sections.")
-            for section in param_sections[1:]:  # Skip the first empty split
-                if ">" in section and "</parameter>" in section:
-                    # Extract parameter name
-                    name_start = section.find('name="') + 6
-                    name_end = section.find('"', name_start)
-                    param_name = section[name_start:name_end]
-                    
-                    # Extract parameter value
-                    value_start = section.find(">") + 1
-                    value_end = section.find("</parameter>")
-                    param_value = section[value_start:value_end].strip()
+        try:
+            # Clean potential markdown code blocks if present
+            cleaned_xml = xml_response.strip()
+            if cleaned_xml.startswith("```xml"):
+                cleaned_xml = cleaned_xml[len("```xml"):].strip()
+            if cleaned_xml.endswith("```"):
+                cleaned_xml = cleaned_xml[:-len("```")].strip()
 
-                    result["tool_use"]["parameters"][param_name] = param_value
-                    logger.debug(f"Parsed parameter: {param_name} = {param_value}")
+            # Ensure there's a single root element for parsing robustness
+            if not cleaned_xml.startswith("<response>"): # Assuming a root element might be missing
+                 cleaned_xml = f"<response>{cleaned_xml}</response>"
+
+            root = ET.fromstring(cleaned_xml)
+
+            # Extract reflection components
+            reflection_elements = ["current_task", "description", "next_steps", "goal", "other_info"]
+            for elem_name in reflection_elements:
+                element = root.find(elem_name)
+                if element is not None and element.text:
+                    result["reflection"][elem_name] = element.text.strip()
+                else:
+                     result["reflection"][elem_name] = "" # Ensure key exists even if empty
+
+            # Extract tool use
+            tool_use_element = root.find("tool_use")
+            if tool_use_element is not None:
+                tool_name_element = tool_use_element.find("tool_name")
+                if tool_name_element is not None and tool_name_element.text:
+                    result["tool_use"]["name"] = tool_name_element.text.strip()
+                else:
+                     logger.warning(f"Agent response XML missing <tool_name> within <tool_use>.")
+                     result["tool_use"]["name"] = None # Explicitly set to None if missing
+
+                parameters = {}
+                for param_element in tool_use_element.findall("parameter"):
+                    name = param_element.get("name")
+                    value = param_element.text.strip() if param_element.text else ""
+                    if name:
+                        parameters[name] = value
+                result["tool_use"]["parameters"] = parameters
+            else:
+                 logger.warning(f"Agent response XML missing <tool_use> section.")
+                 # Set default tool_use if missing
+                 result["tool_use"] = {"name": "do_nothing", "parameters": {}}
+
+
+        except ET.ParseError as e:
+            logger.error(f"XML parsing error in agent response: {e}\nInvalid XML: {xml_response[:500]}...", exc_info=True)
+            # Raise the error so the retry logic in process_agent_turn can catch it
+            raise ValueError(f"Invalid XML format: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error processing agent response XML: {e}\nXML: {xml_response[:500]}...", exc_info=True)
+            # Raise the error
+            raise ValueError(f"Unexpected error parsing XML: {e}")
 
         return result
 
